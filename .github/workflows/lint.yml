@@ -1,0 +1,87 @@
+name: Lint
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clang-tidy:
+    name: clang-tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-tidy
+        run: sudo apt-get update && sudo apt-get install -y clang-tidy
+      - name: Run clang-tidy
+        run: |
+          mapfile -d '' cpp_files < <(find . -type f -name '*.cpp' \
+            -not -path './build/*' -not -path './.git/*' -print0)
+          if [ "${#cpp_files[@]}" -eq 0 ]; then
+            echo "No translation units yet; clang-tidy skipped."
+            exit 0
+          fi
+          cmake -S . -B build \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+            -DCMAKE_CXX_COMPILER=clang++
+          clang-tidy -p build "${cpp_files[@]}" \
+            --header-filter='include/sensor_fusion/'
+
+  commit-messages:
+    name: commit-messages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check commit messages
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags origin "$BASE_SHA"
+            git fetch --no-tags origin "pull/${PR_NUMBER}/head"
+            range="${BASE_SHA}..FETCH_HEAD"
+          elif [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            git fetch --no-tags origin main
+            range="origin/main..HEAD"
+          elif git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            range="${BEFORE}..HEAD"
+          else
+            git fetch --no-tags origin main
+            range="origin/main..HEAD"
+          fi
+          git log --reverse --format='%B%x00' "$range" | .github/scripts/check-commits.sh
+
+  branch-name:
+    name: branch-name
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check branch name
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          pattern='^[A-Za-z0-9-]+/(feat|fix|docs|test|refactor|perf|ci|build|chore)/[a-z0-9]+(-[a-z0-9]+)*$'
+          if [[ ! "$HEAD_REF" =~ $pattern ]]; then
+            echo "Branch '$HEAD_REF' must match <github-login>/<type>/<kebab-summary>."
+            echo "Example: luftboud/feat/nmea-parser"
+            exit 1
+          fi
+
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rhysd/actionlint@v1

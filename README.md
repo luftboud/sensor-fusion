@@ -25,6 +25,9 @@ sensor-fusion/
   CMakeLists.txt
   README.md
   AGENTS.md
+  CONTRIBUTING.md
+  .clang-tidy
+  .github/workflows/   CI build, sanitizers, and lint
   include/sensor_fusion/
     io/          NMEA, IMU, and KITTI readers
     matrix/      compile-time-sized matrices
@@ -48,3 +51,7 @@ cmake -S . -B build
 Requires CMake 3.20 or newer and a C++20 compiler.
 
 Datasets stay on disk and are not committed. See [data/README.md](data/README.md).
+
+## Contributing
+
+Branch names, commit messages, and rebase merges are described in [CONTRIBUTING.md](CONTRIBUTING.md). GitHub Actions runs the build, sanitizers, and lint checks on every push and pull request.
