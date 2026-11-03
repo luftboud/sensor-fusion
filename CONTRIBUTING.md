@@ -100,7 +100,7 @@ cmake -S . -B build-san -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug \
 cmake --build build-san
 
 git fetch origin main
-git log --reverse --format='%B%x00' origin/main..HEAD | .github/scripts/check-commits.sh
+git log --reverse -z --format='%B' origin/main..HEAD | .github/scripts/check-commits.sh
 ```
 
 When a `.cpp` file exists:
