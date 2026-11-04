@@ -74,6 +74,9 @@ Testing/
 .idea/
 .vscode/
 
+# Local Python environment for tools/kitti_oxts_survey.py
+.venv/
+
 # CMake user presets
 CMakeUserPresets.json
 
