@@ -17,3 +17,9 @@ target_include_directories(sensor_fusion INTERFACE
     $<INSTALL_INTERFACE:include>)
 
 target_compile_features(sensor_fusion INTERFACE cxx_std_20)
+
+enable_testing()
+
+add_executable(matrix_tests tests/matrix_tests.cpp)
+target_link_libraries(matrix_tests PRIVATE sensor_fusion)
+add_test(NAME matrix_tests COMMAND matrix_tests)
