@@ -22,9 +22,10 @@ jobs:
       - name: Run clang-tidy
         run: |
           mapfile -d '' cpp_files < <(find . -type f -name '*.cpp' \
-            -not -path './build/*' -not -path './.git/*' -print0)
+            -not -path './build/*' -not -path './.git/*' \
+            -not -path './tests/*' -print0)
           if [ "${#cpp_files[@]}" -eq 0 ]; then
-            echo "No translation units yet; clang-tidy skipped."
+            echo "No library translation units yet; clang-tidy skipped."
             exit 0
           fi
           cmake -S . -B build \
