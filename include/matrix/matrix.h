@@ -10,7 +10,9 @@
 #include <cstddef>
 #include <stdexcept>
 #include <cmath>
+#include <limits>
 #include <type_traits>
+#include <concepts>
 
 #if defined(__clang__)
 #define MATRIX_SCALAR_FOR _Pragma("clang loop vectorize(disable) interleave(disable)")
@@ -21,7 +23,7 @@
 #endif
 
 // static matrix
-template<typename T, std::size_t Rows = 0, std::size_t Cols = 0>
+template<typename T, std::size_t Rows = 0, std::size_t Cols = Rows>
 class Matrix {
 public:
     Matrix() {
@@ -77,13 +79,29 @@ private:
 template<typename T, std::size_t N>
 using Vector = Matrix<T, N, 1>;
 
-// square matrix
 template<typename T, std::size_t N>
 using SquareMatrix = Matrix<T, N, N>;
 
 template<typename T>
+class DynamicSquareMatrix : public Matrix<T, 0, 0> {
+public:
+    DynamicSquareMatrix() : Matrix<T, 0, 0>(0, 0) {}
+    explicit DynamicSquareMatrix(std::size_t n) : Matrix<T, 0, 0>(n, n) {}
+};
+
+template<typename T>
 T zero_element() {
     return T();
+}
+
+template<typename T>
+bool is_zero(const T& value) {
+    if constexpr (std::is_floating_point<T>::value) {
+        using std::abs;
+        return abs(value) <= std::numeric_limits<T>::epsilon();
+    } else {
+        return value == zero_element<T>();
+    }
 }
 
 template<typename T>
@@ -111,7 +129,7 @@ Matrix<T, Rows, Cols> operator+(const Matrix<T, Rows, Cols>& a,
 
     const std::size_t count = a.rows() * a.cols();
     if constexpr (std::is_same<T, double>::value) {
-        if (simd::enabled()) {
+        if (MATRIX_USE_SIMD && simd::enabled()) {
             simd::add(result.data(), a.data(), b.data(), count);
             return result;
         }
@@ -142,7 +160,7 @@ Matrix<T, Rows, Cols> operator-(const Matrix<T, Rows, Cols>& a,
 
     const std::size_t count = a.rows() * a.cols();
     if constexpr (std::is_same<T, double>::value) {
-        if (simd::enabled()) {
+        if (MATRIX_USE_SIMD && simd::enabled()) {
             simd::sub(result.data(), a.data(), b.data(), count);
             return result;
         }
@@ -168,7 +186,7 @@ Matrix<T, Rows, Cols> operator*(const Matrix<T, Rows, Cols>& a, const T k) {
 
     const std::size_t count = a.rows() * a.cols();
     if constexpr (std::is_same<T, double>::value) {
-        if (simd::enabled()) {
+        if (MATRIX_USE_SIMD && simd::enabled()) {
             simd::scale(result.data(), a.data(), k, count);
             return result;
         }
@@ -202,7 +220,7 @@ Matrix<T, Rows, Cols> operator*(const Matrix<T, Rows, Inner>& a, const Matrix<T,
     }();
 
     if constexpr (std::is_same<T, double>::value) {
-        if (simd::enabled()) {
+        if (MATRIX_USE_SIMD && simd::enabled()) {
             const std::size_t cols = b.cols();
             for (std::size_t row = 0; row < a.rows(); ++row) {
                 double* destination = result.data() + row * cols;
@@ -227,55 +245,69 @@ Matrix<T, Rows, Cols> operator*(const Matrix<T, Rows, Inner>& a, const Matrix<T,
 }
 // determinant
 template<typename T, std::size_t Rows, std::size_t Cols>
-T det(const Matrix<T, Rows, Cols>& a) {
+auto det(const Matrix<T, Rows, Cols>& a) {
     if (a.cols() != a.rows()) {
         throw std::invalid_argument("Incorrect matrix size: matrix has to be square!");
     }
 
-    Matrix<T, Rows, Cols> m = a;
-    const std::size_t n = m.rows();
-    T result = one_element<T>();
-
-    using std::abs;
-
-    for (std::size_t k = 0; k < n; ++k) {
-        std::size_t pivot = k;
-        for (std::size_t row = k+1; row < n; ++row){
-            if (abs(m(row, k)) > abs(m(pivot, k)))
-            pivot = row;
+    if constexpr (!std::is_floating_point<T>::value) {
+        Matrix<float, Rows, Cols> converted = [&] {
+            if constexpr (Rows == 0 && Cols == 0)
+                return Matrix<float, Rows, Cols>(a.rows(), a.cols());
+            else
+                return Matrix<float, Rows, Cols>{};
+        }();
+        for (std::size_t row = 0; row < a.rows(); ++row) {
+            for (std::size_t col = 0; col < a.cols(); ++col)
+                converted(row, col) = static_cast<float>(a(row, col));
         }
+        return det(converted);
+    } else {
+        Matrix<T, Rows, Cols> m = a;
+        const std::size_t n = m.rows();
+        T result = one_element<T>();
 
-        if (m(pivot, k) == zero_element<T>())
-            return zero_element<T>();
+        using std::abs;
 
-        if (pivot != k) {
-            for (std::size_t col = 0; col < n; ++col) {
-                std::swap(m(k, col), m(pivot, col));
+        for (std::size_t k = 0; k < n; ++k) {
+            std::size_t pivot = k;
+            for (std::size_t row = k+1; row < n; ++row){
+                if (abs(m(row, k)) > abs(m(pivot, k)))
+                    pivot = row;
             }
-            result = -result;
-        }
 
-        for (std::size_t row = k+1; row < n; ++row) {
-            const T factor = m(row, k) / m(k, k);
-            bool used_simd = false;
-            if constexpr (std::is_same<T, double>::value) {
-                if (simd::enabled()) {
-                    simd::axpy(m.data() + row * n + k, m.data() + k * n + k, -factor, n - k);
-                    used_simd = true;
+            if (is_zero(m(pivot, k)))
+                return zero_element<T>();
+
+            if (pivot != k) {
+                for (std::size_t col = 0; col < n; ++col) {
+                    std::swap(m(k, col), m(pivot, col));
+                }
+                result = -result;
+            }
+
+            for (std::size_t row = k+1; row < n; ++row) {
+                const T factor = m(row, k) / m(k, k);
+                bool used_simd = false;
+                if constexpr (std::is_same<T, double>::value) {
+                    if (MATRIX_USE_SIMD && simd::enabled()) {
+                        simd::axpy(m.data() + row * n + k, m.data() + k * n + k, -factor, n - k);
+                        used_simd = true;
+                    }
+                }
+                if (!used_simd) {
+                    MATRIX_SCALAR_FOR
+                    for (std::size_t col = k; col < n; ++col)
+                        m(row, col) -= factor * m(k, col);
                 }
             }
-            if (!used_simd) {
-                MATRIX_SCALAR_FOR
-                for (std::size_t col = k; col < n; ++col)
-                    m(row, col) -= factor * m(k, col);
-            }
         }
+
+        for (std::size_t i = 0; i < n; ++i)
+            result *= m(i, i);
+
+        return result;
     }
-
-    for (std::size_t i = 0; i < n; ++i)
-        result *= m(i, i);
-
-    return result;
 }
 // matrix inverse
 template<typename T, std::size_t Rows, std::size_t Cols>
@@ -308,7 +340,7 @@ Matrix<T, Rows, Cols> inverse(const Matrix<T, Rows, Cols>& a) {
                 pivot = row;
         }
 
-        if (augmented(pivot, k) == zero_element<T>())
+        if (is_zero(augmented(pivot, k)))
             throw std::invalid_argument("Matrix is singular!");
 
         if (pivot != k) {
@@ -321,7 +353,7 @@ Matrix<T, Rows, Cols> inverse(const Matrix<T, Rows, Cols>& a) {
         const std::size_t width = n * 2;
         bool scaled_with_simd = false;
         if constexpr (std::is_same<T, double>::value) {
-            if (simd::enabled()) {
+            if (MATRIX_USE_SIMD && simd::enabled()) {
                 simd::scale(augmented.data() + k * width + k,
                             augmented.data() + k * width + k,
                             1.0 / pivot_value,
@@ -341,7 +373,7 @@ Matrix<T, Rows, Cols> inverse(const Matrix<T, Rows, Cols>& a) {
             const T factor = augmented(row, k);
             bool eliminated_with_simd = false;
             if constexpr (std::is_same<T, double>::value) {
-                if (simd::enabled()) {
+                if (MATRIX_USE_SIMD && simd::enabled()) {
                     simd::axpy(augmented.data() + row * width + k,
                                augmented.data() + k * width + k,
                                -factor,
@@ -372,6 +404,39 @@ Matrix<T, Rows, Cols> inverse(const Matrix<T, Rows, Cols>& a) {
 
     return result;
 }
+
+template<typename T, std::size_t Rows, std::size_t Cols>
+Matrix<T, Cols, Rows> transpose(const Matrix<T, Rows, Cols>& a) {
+    Matrix<T, Cols, Rows> result = [&] {
+        if constexpr (Rows == 0 && Cols == 0)
+            return Matrix<T, Cols, Rows>(a.cols(), a.rows());
+        else
+            return Matrix<T, Cols, Rows>{};
+    }();
+
+    for (std::size_t row = 0; row < a.rows(); ++row) {
+        for (std::size_t col = 0; col < a.cols(); ++col)
+            result(col, row) = a(row, col);
+    }
+    return result;
+}
+
+template<typename T, std::size_t N>
+Matrix<T, N, N> identity() {
+    Matrix<T, N, N> result;
+    for (std::size_t i = 0; i < N; ++i)
+        result(i, i) = one_element<T>();
+    return result;
+}
+
+template<typename T>
+Matrix<T, 0, 0> identity(std::size_t n) {
+    Matrix<T, 0, 0> result(n, n);
+    for (std::size_t i = 0; i < n; ++i)
+        result(i, i) = one_element<T>();
+    return result;
+}
+
 #undef MATRIX_SCALAR_FOR
 
 #endif //SENSOR_FUSION_MATRIX_H
