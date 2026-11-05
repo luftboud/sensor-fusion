@@ -214,10 +214,10 @@ void test_static_det_and_inverse() {
     CHECK(close(integer_inverse(1, 1), 1));
 
     const auto integer_matrix_inverse = inverse(integer_matrix);
-    CHECK(std::abs(integer_matrix_inverse(0, 0) - 2.0 / 3.0) < 1e-6);
-    CHECK(std::abs(integer_matrix_inverse(0, 1) + 1.0 / 3.0) < 1e-6);
-    CHECK(std::abs(integer_matrix_inverse(1, 0) + 1.0 / 3.0) < 1e-6);
-    CHECK(std::abs(integer_matrix_inverse(1, 1) - 2.0 / 3.0) < 1e-6);
+    CHECK(close(integer_matrix_inverse(0, 0), 2.0 / 3.0));
+    CHECK(close(integer_matrix_inverse(0, 1), -1.0 / 3.0));
+    CHECK(close(integer_matrix_inverse(1, 0), -1.0 / 3.0));
+    CHECK(close(integer_matrix_inverse(1, 1), 2.0 / 3.0));
 }
 
 void test_dynamic_access() {
@@ -349,10 +349,10 @@ void test_dynamic_det_and_inverse() {
     integer_matrix(1, 1) = 2;
     CHECK(close(det(integer_matrix), 3.0));
     const auto integer_inverse = inverse(integer_matrix);
-    CHECK(std::abs(integer_inverse(0, 0) - 2.0 / 3.0) < 1e-6);
-    CHECK(std::abs(integer_inverse(0, 1) + 1.0 / 3.0) < 1e-6);
-    CHECK(std::abs(integer_inverse(1, 0) + 1.0 / 3.0) < 1e-6);
-    CHECK(std::abs(integer_inverse(1, 1) - 2.0 / 3.0) < 1e-6);
+    CHECK(close(integer_inverse(0, 0), 2.0 / 3.0));
+    CHECK(close(integer_inverse(0, 1), -1.0 / 3.0));
+    CHECK(close(integer_inverse(1, 0), -1.0 / 3.0));
+    CHECK(close(integer_inverse(1, 1), 2.0 / 3.0));
 
     Matrix<double> rectangular(2, 3);
     expect_invalid_argument([&] { (void)det(rectangular); });
@@ -546,6 +546,27 @@ void test_dynamic_square_matrix() {
     CHECK(inverted.cols() == 2);
     CHECK(close(inverted(0, 0), 2.0 / 3.0));
     CHECK(close(inverted(1, 1), 2.0 / 3.0));
+
+    DynamicSquareMatrix<double> other(2);
+    other(0, 0) = 1;
+    other(1, 1) = 1;
+    const auto sum = matrix + other;
+    CHECK(sum.rows() == 2);
+    CHECK(close(sum(0, 0), 3));
+    CHECK(close((matrix - other)(1, 1), 1));
+    CHECK(close((2.0 * matrix)(0, 0), 4));
+
+    const auto product = inverse(matrix) * matrix;
+    CHECK(close(product(0, 0), 1));
+    CHECK(close(product(0, 1), 0));
+    CHECK(close(product(1, 0), 0));
+    CHECK(close(product(1, 1), 1));
+
+    const auto transposed = transpose(matrix);
+    CHECK(transposed.rows() == 2);
+    CHECK(transposed.cols() == 2);
+    CHECK(close(transposed(0, 1), 1));
+    CHECK(close(transposed(1, 0), 1));
 
     expect_invalid_argument([] { DynamicSquareMatrix<double> empty(0); });
 }
