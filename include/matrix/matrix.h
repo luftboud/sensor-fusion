@@ -276,16 +276,16 @@ Matrix<T, Rows, Cols> operator*(const Matrix<T, Rows, Inner>& a, const Matrix<T,
     return result;
 }
 template<typename T, std::size_t Rows, std::size_t Cols>
-Matrix<float, Rows, Cols> as_float(const Matrix<T, Rows, Cols>& a) {
-    Matrix<float, Rows, Cols> converted = [&] {
+Matrix<double, Rows, Cols> as_double(const Matrix<T, Rows, Cols>& a) {
+    Matrix<double, Rows, Cols> converted = [&] {
         if constexpr (Rows == 0 && Cols == 0)
-            return Matrix<float, Rows, Cols>(a.rows(), a.cols());
+            return Matrix<double, Rows, Cols>(a.rows(), a.cols());
         else
-            return Matrix<float, Rows, Cols>{};
+            return Matrix<double, Rows, Cols>{};
     }();
     for (std::size_t row = 0; row < a.rows(); ++row) {
         for (std::size_t col = 0; col < a.cols(); ++col)
-            converted(row, col) = static_cast<float>(a(row, col));
+            converted(row, col) = static_cast<double>(a(row, col));
     }
     return converted;
 }
@@ -298,7 +298,7 @@ auto det(const Matrix<T, Rows, Cols>& a) {
     }
 
     if constexpr (!std::is_floating_point<T>::value) {
-        return det(as_float(a));
+        return det(as_double(a));
     } else {
         Matrix<T, Rows, Cols> m = a;
         const std::size_t n = m.rows();
@@ -353,7 +353,7 @@ auto inverse(const Matrix<T, Rows, Cols>& a) {
         throw std::invalid_argument("Incorrect matrix size: matrix has to be square!");
 
     if constexpr (!std::is_floating_point<T>::value) {
-        return inverse(as_float(a));
+        return inverse(as_double(a));
     } else {
 
     const std::size_t n = a.rows();
@@ -448,15 +448,78 @@ auto inverse(const Matrix<T, Rows, Cols>& a) {
 }
 
 template<typename T>
+const Matrix<T, 0, 0>& as_matrix(const DynamicSquareMatrix<T>& a) {
+    return static_cast<const Matrix<T, 0, 0>&>(a);
+}
+
+template<typename T>
 auto det(const DynamicSquareMatrix<T>& a) {
-    const Matrix<T, 0, 0>& matrix = a;
-    return det(matrix);
+    return det(as_matrix(a));
 }
 
 template<typename T>
 auto inverse(const DynamicSquareMatrix<T>& a) {
-    const Matrix<T, 0, 0>& matrix = a;
-    return inverse(matrix);
+    return inverse(as_matrix(a));
+}
+
+template<typename T>
+Matrix<T, 0, 0> transpose(const DynamicSquareMatrix<T>& a) {
+    return transpose(as_matrix(a));
+}
+
+template<typename T>
+Matrix<T, 0, 0> operator+(const DynamicSquareMatrix<T>& a, const DynamicSquareMatrix<T>& b) {
+    return as_matrix(a) + as_matrix(b);
+}
+
+template<typename T>
+Matrix<T, 0, 0> operator+(const DynamicSquareMatrix<T>& a, const Matrix<T, 0, 0>& b) {
+    return as_matrix(a) + b;
+}
+
+template<typename T>
+Matrix<T, 0, 0> operator+(const Matrix<T, 0, 0>& a, const DynamicSquareMatrix<T>& b) {
+    return a + as_matrix(b);
+}
+
+template<typename T>
+Matrix<T, 0, 0> operator-(const DynamicSquareMatrix<T>& a, const DynamicSquareMatrix<T>& b) {
+    return as_matrix(a) - as_matrix(b);
+}
+
+template<typename T>
+Matrix<T, 0, 0> operator-(const DynamicSquareMatrix<T>& a, const Matrix<T, 0, 0>& b) {
+    return as_matrix(a) - b;
+}
+
+template<typename T>
+Matrix<T, 0, 0> operator-(const Matrix<T, 0, 0>& a, const DynamicSquareMatrix<T>& b) {
+    return a - as_matrix(b);
+}
+
+template<typename T>
+Matrix<T, 0, 0> operator*(const DynamicSquareMatrix<T>& a, const DynamicSquareMatrix<T>& b) {
+    return as_matrix(a) * as_matrix(b);
+}
+
+template<typename T>
+Matrix<T, 0, 0> operator*(const DynamicSquareMatrix<T>& a, const Matrix<T, 0, 0>& b) {
+    return as_matrix(a) * b;
+}
+
+template<typename T>
+Matrix<T, 0, 0> operator*(const Matrix<T, 0, 0>& a, const DynamicSquareMatrix<T>& b) {
+    return a * as_matrix(b);
+}
+
+template<typename T>
+Matrix<T, 0, 0> operator*(const DynamicSquareMatrix<T>& a, const T k) {
+    return as_matrix(a) * k;
+}
+
+template<typename T>
+Matrix<T, 0, 0> operator*(const T k, const DynamicSquareMatrix<T>& a) {
+    return k * as_matrix(a);
 }
 
 template<typename T, std::size_t Rows, std::size_t Cols>
