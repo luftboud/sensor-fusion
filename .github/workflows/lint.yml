@@ -61,7 +61,7 @@ jobs:
             git fetch --no-tags origin main
             range="origin/main..HEAD"
           fi
-          git log --reverse --format='%B%x00' "$range" | .github/scripts/check-commits.sh
+          git log -z --reverse --format='%B' "$range" | .github/scripts/check-commits.sh
 
   branch-name:
     name: branch-name

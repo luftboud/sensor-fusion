@@ -7,6 +7,9 @@ subject_re='^(feat|fix|docs|test|refactor|perf|ci|build|chore)(\([a-z0-9]+(-[a-z
 
 fail=0
 while IFS= read -r -d '' message; do
+  # git log without -z inserts a newline after the NUL separator, which
+  # would otherwise become an empty subject on every commit after the first.
+  message="${message#$'\n'}"
   [ -n "$message" ] || continue
   subject="${message%%$'\n'*}"
   subject="${subject%$'\r'}"
