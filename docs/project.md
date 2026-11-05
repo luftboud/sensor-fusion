@@ -1,32 +1,32 @@
-# Sensor Fusion Core: бібліотека злиття даних GNSS та IMU на сучасному C++
+# Sensor Fusion Core: a GNSS and IMU fusion library in modern C++
 
-## Короткий опис
+## Short description
 
-Дешеві GNSS-приймачі дають похибку в кілька метрів і втрачають сигнал у тунелях, щільній забудові та під радіоелектронною протидією; інерційні датчики працюють завжди, але швидко дрейфують. Ми збираємось реалізувати бібліотеку злиття цих джерел на основі розширеного фільтра Калмана: IMU веде траєкторію між супутниковими вимірами, GNSS прибирає накопичений дрейф. Результат дозволить зберігати точність навіть при втраті сигналу на десятки секунд.
+Cheap GNSS receivers are off by several meters and lose the signal in tunnels, dense streets, and under radio interference. Inertial sensors keep working, but they drift quickly. We are going to build a library that fuses these sources with an extended Kalman filter: the IMU carries the trajectory between satellite measurements, and GNSS removes the drift that has built up. The result should hold accuracy through outages of tens of seconds.
 
-## Полігон сучасного C++
+## A proving ground for modern C++
 
-Ядро фільтра — матричні операції розміру, відомого на етапі компіляції, тому проєкт є полігоном для порівняння підходів сучасного C++. Ми пишемо власну шаблонну матричну бібліотеку і міряємо три осі: статичні матриці проти динамічних, SIMD-векторизацію, пакетний паралельний прогін. Бібліотеки, по типу Eigen і filterpy використовуються як еталон коректності та базова лінія швидкості, не як залежності.
+The filter core is matrix operations whose sizes are known at compile time, so the project is a place to compare modern C++ approaches. We write our own template matrix library and measure three axes: static matrices against dynamic ones, SIMD vectorization, and a batched parallel run. Libraries such as Eigen and filterpy are a correctness reference and a speed baseline. They are not dependencies.
 
-## Валідація
+## Validation
 
-Валідувати результат будемо на відкритих датасетах із референсною траєкторією (н.п. KITTI), плюс власний записаний трек.
+We will validate the result on public datasets that have a reference trajectory (for example KITTI), plus our own recorded track.
 
-## План проєкту
+## Project plan
 
-- Тижні 1–2: організація репозиторію, CMake, CI; парсер NMEA і читач IMU з тестами; завантаження KITTI.
-- Тижні 3–4: створення власної матричної бібліотеки зі статичними розмірами; проста реалізація EKF на динамічних матрицях як baseline; звірка з відкритими бібліотеками.
-- Тижні 5–6: створення ядра — EKF для 2D-моделі на статичних матрицях; перевірка на датасеті, налаштування шумів, сценарії втрати GNSS.
-- Тижні 7–8: замірювання бенчмарків, три підходи до оптимізації, профілювання, порівняння з бібліотекою Eigen.
-- Тиждень 9: тест на власному треку; додаткова ціль: 3D-модель на 15 змінних, якщо дозволить час.
-- Тиждень 10: інтерфейс, документація, звіт, демо.
+- Weeks 1–2: repository layout, CMake, CI; an NMEA parser and an IMU reader with tests; downloading KITTI.
+- Weeks 3–4: our own compile-time-sized matrix library; a simple EKF on dynamic matrices as a baseline; a check against public libraries.
+- Weeks 5–6: the core, a 2D EKF on static matrices; a check on the dataset, noise tuning, and GNSS-outage scenarios.
+- Weeks 7–8: benchmarks, three optimization approaches, profiling, and a comparison with Eigen.
+- Week 9: a test on our own track; an extra goal, if time allows, is a 3D model with 15 states.
+- Week 10: the interface, documentation, the report, and a demo.
 
-## Критерії успіху
+## Success criteria
 
-1. EKF для 2D-моделі працює на повному датасеті й видає траєкторію з оцінками коваріацій; результати збігаються з filterpy у межах чисельної похибки.
-2. RMSE позиції щонайменше на 30% менша, ніж у синтетичних сирих GNSS-даних.
-3. При штучній втраті GNSS на 15 секунд похибка на момент відновлення щонайменше в 3 рази менша, ніж без корекції.
-4. Реалізовано і кількісно виміряно три підходи до оптимізації; статичні матриці дають прискорення кроку фільтра, відсутність алокацій на гарячому шляху підтверджена тестом.
-5. Пакетний прогін масштабується по ядрах з ефективністю не нижче 70%; швидкість зіставлена з Eigen і проаналізована.
-6. Парсер NMEA коректно відкидає пошкоджені записи; тести проходять, парсер перевірений тестуванням.
-7. Є бібліотека з документацією, CLI-утиліта «лог -> траєкторія і метрики», візуалізація трьох траєкторій на одному зображенні та звіт із таблицями точності й продуктивності.
+1. The 2D EKF runs on a full dataset and reports a trajectory with covariance estimates. The results match filterpy within numerical error.
+2. Position RMSE is at least 30% below the synthetic raw GNSS.
+3. After an artificial 15-second GNSS outage, the error at reacquisition is at least 3 times smaller than without the correction.
+4. Three optimization approaches are implemented and measured. Static matrices speed up a filter step. A test confirms that the hot path does not allocate.
+5. A batched run scales across cores at 70% efficiency or better. The speed is compared with Eigen and analyzed.
+6. The NMEA parser rejects corrupt records. The tests pass, and the parser is covered by tests.
+7. There is a documented library, a CLI from a log to a trajectory and metrics, one figure with three trajectories, and a report with accuracy and performance tables.
