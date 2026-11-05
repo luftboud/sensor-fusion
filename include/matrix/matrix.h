@@ -83,10 +83,30 @@ template<typename T, std::size_t N>
 using SquareMatrix = Matrix<T, N, N>;
 
 template<typename T>
-class DynamicSquareMatrix : public Matrix<T, 0, 0> {
+class DynamicSquareMatrix {
 public:
-    DynamicSquareMatrix() : Matrix<T, 0, 0>(0, 0) {}
-    explicit DynamicSquareMatrix(std::size_t n) : Matrix<T, 0, 0>(n, n) {}
+    explicit DynamicSquareMatrix(std::size_t n)
+        : matrix_(require_size(n), require_size(n)) {}
+
+    std::size_t rows() const { return matrix_.rows(); }
+    std::size_t cols() const { return matrix_.cols(); }
+
+    T& operator()(std::size_t row, std::size_t col) { return matrix_(row, col); }
+    const T& operator()(std::size_t row, std::size_t col) const { return matrix_(row, col); }
+
+    T* data() noexcept { return matrix_.data(); }
+    const T* data() const noexcept { return matrix_.data(); }
+
+    operator const Matrix<T, 0, 0>&() const { return matrix_; }
+
+private:
+    static std::size_t require_size(std::size_t n) {
+        if (n == 0)
+            throw std::invalid_argument("Square matrix size must be positive");
+        return n;
+    }
+
+    Matrix<T, 0, 0> matrix_;
 };
 
 template<typename T>
@@ -95,13 +115,25 @@ T zero_element() {
 }
 
 template<typename T>
-bool is_zero(const T& value) {
+bool is_zero(const T& value, const T& scale) {
     if constexpr (std::is_floating_point<T>::value) {
         using std::abs;
-        return abs(value) <= std::numeric_limits<T>::epsilon();
+        return abs(value) <= std::numeric_limits<T>::epsilon() * abs(scale);
     } else {
         return value == zero_element<T>();
     }
+}
+
+template<typename T, std::size_t Rows, std::size_t Cols>
+T column_scale(const Matrix<T, Rows, Cols>& a, std::size_t column) {
+    using std::abs;
+    T scale = zero_element<T>();
+    for (std::size_t row = 0; row < a.rows(); ++row) {
+        const T magnitude = abs(a(row, column));
+        if (magnitude > scale)
+            scale = magnitude;
+    }
+    return scale;
 }
 
 template<typename T>
@@ -243,6 +275,21 @@ Matrix<T, Rows, Cols> operator*(const Matrix<T, Rows, Inner>& a, const Matrix<T,
     }
     return result;
 }
+template<typename T, std::size_t Rows, std::size_t Cols>
+Matrix<float, Rows, Cols> as_float(const Matrix<T, Rows, Cols>& a) {
+    Matrix<float, Rows, Cols> converted = [&] {
+        if constexpr (Rows == 0 && Cols == 0)
+            return Matrix<float, Rows, Cols>(a.rows(), a.cols());
+        else
+            return Matrix<float, Rows, Cols>{};
+    }();
+    for (std::size_t row = 0; row < a.rows(); ++row) {
+        for (std::size_t col = 0; col < a.cols(); ++col)
+            converted(row, col) = static_cast<float>(a(row, col));
+    }
+    return converted;
+}
+
 // determinant
 template<typename T, std::size_t Rows, std::size_t Cols>
 auto det(const Matrix<T, Rows, Cols>& a) {
@@ -251,17 +298,7 @@ auto det(const Matrix<T, Rows, Cols>& a) {
     }
 
     if constexpr (!std::is_floating_point<T>::value) {
-        Matrix<float, Rows, Cols> converted = [&] {
-            if constexpr (Rows == 0 && Cols == 0)
-                return Matrix<float, Rows, Cols>(a.rows(), a.cols());
-            else
-                return Matrix<float, Rows, Cols>{};
-        }();
-        for (std::size_t row = 0; row < a.rows(); ++row) {
-            for (std::size_t col = 0; col < a.cols(); ++col)
-                converted(row, col) = static_cast<float>(a(row, col));
-        }
-        return det(converted);
+        return det(as_float(a));
     } else {
         Matrix<T, Rows, Cols> m = a;
         const std::size_t n = m.rows();
@@ -276,7 +313,7 @@ auto det(const Matrix<T, Rows, Cols>& a) {
                     pivot = row;
             }
 
-            if (is_zero(m(pivot, k)))
+            if (is_zero(m(pivot, k), column_scale(a, k)))
                 return zero_element<T>();
 
             if (pivot != k) {
@@ -311,9 +348,13 @@ auto det(const Matrix<T, Rows, Cols>& a) {
 }
 // matrix inverse
 template<typename T, std::size_t Rows, std::size_t Cols>
-Matrix<T, Rows, Cols> inverse(const Matrix<T, Rows, Cols>& a) {
+auto inverse(const Matrix<T, Rows, Cols>& a) {
     if (a.rows() != a.cols())
         throw std::invalid_argument("Incorrect matrix size: matrix has to be square!");
+
+    if constexpr (!std::is_floating_point<T>::value) {
+        return inverse(as_float(a));
+    } else {
 
     const std::size_t n = a.rows();
 
@@ -340,7 +381,7 @@ Matrix<T, Rows, Cols> inverse(const Matrix<T, Rows, Cols>& a) {
                 pivot = row;
         }
 
-        if (is_zero(augmented(pivot, k)))
+        if (is_zero(augmented(pivot, k), column_scale(a, k)))
             throw std::invalid_argument("Matrix is singular!");
 
         if (pivot != k) {
@@ -403,6 +444,19 @@ Matrix<T, Rows, Cols> inverse(const Matrix<T, Rows, Cols>& a) {
     }
 
     return result;
+    }
+}
+
+template<typename T>
+auto det(const DynamicSquareMatrix<T>& a) {
+    const Matrix<T, 0, 0>& matrix = a;
+    return det(matrix);
+}
+
+template<typename T>
+auto inverse(const DynamicSquareMatrix<T>& a) {
+    const Matrix<T, 0, 0>& matrix = a;
+    return inverse(matrix);
 }
 
 template<typename T, std::size_t Rows, std::size_t Cols>

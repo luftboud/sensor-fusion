@@ -175,6 +175,23 @@ void test_static_det_and_inverse() {
     CHECK(close(det(almost_singular), 0));
     expect_invalid_argument([&] { (void)inverse(almost_singular); });
 
+    SquareMatrix<double, 2> tiny;
+    tiny(0, 0) = 1e-20;
+    tiny(1, 1) = 1e-20;
+    CHECK(det(tiny) != 0.0);
+    const SquareMatrix<double, 2> tiny_inverse = inverse(tiny);
+    CHECK(close(tiny_inverse(0, 0) * tiny(0, 0), 1));
+    CHECK(close(tiny_inverse(1, 1) * tiny(1, 1), 1));
+    CHECK(close(tiny_inverse(0, 1), 0));
+
+    SquareMatrix<double, 2> wide_range;
+    wide_range(0, 0) = 1e10;
+    wide_range(1, 1) = 1e-8;
+    CHECK(det(wide_range) != 0.0);
+    const SquareMatrix<double, 2> wide_inverse = inverse(wide_range);
+    CHECK(close(wide_inverse(0, 0) * wide_range(0, 0), 1));
+    CHECK(close(wide_inverse(1, 1) * wide_range(1, 1), 1));
+
     Matrix<double, 2, 3> rectangular;
     expect_invalid_argument([&] { (void)det(rectangular); });
     expect_invalid_argument([&] { (void)inverse(rectangular); });
@@ -190,11 +207,17 @@ void test_static_det_and_inverse() {
     integer_matrix(1, 0) = 1;
     integer_matrix(1, 1) = 2;
     CHECK(close(det(integer_matrix), 3.0));
-    const SquareMatrix<int, 2> integer_inverse = inverse(integer_identity);
-    CHECK(integer_inverse(0, 0) == 1);
-    CHECK(integer_inverse(0, 1) == 0);
-    CHECK(integer_inverse(1, 0) == 0);
-    CHECK(integer_inverse(1, 1) == 1);
+    const auto integer_inverse = inverse(integer_identity);
+    CHECK(close(integer_inverse(0, 0), 1));
+    CHECK(close(integer_inverse(0, 1), 0));
+    CHECK(close(integer_inverse(1, 0), 0));
+    CHECK(close(integer_inverse(1, 1), 1));
+
+    const auto integer_matrix_inverse = inverse(integer_matrix);
+    CHECK(std::abs(integer_matrix_inverse(0, 0) - 2.0 / 3.0) < 1e-6);
+    CHECK(std::abs(integer_matrix_inverse(0, 1) + 1.0 / 3.0) < 1e-6);
+    CHECK(std::abs(integer_matrix_inverse(1, 0) + 1.0 / 3.0) < 1e-6);
+    CHECK(std::abs(integer_matrix_inverse(1, 1) - 2.0 / 3.0) < 1e-6);
 }
 
 void test_dynamic_access() {
@@ -293,6 +316,43 @@ void test_dynamic_det_and_inverse() {
     singular(1, 1) = 4;
     CHECK(close(det(singular), 0));
     expect_invalid_argument([&] { (void)inverse(singular); });
+
+    Matrix<double> almost_singular(2, 2);
+    almost_singular(0, 0) = 1;
+    almost_singular(0, 1) = 1;
+    almost_singular(1, 0) = 1;
+    almost_singular(1, 1) = std::nextafter(1.0, 2.0);
+    CHECK(close(det(almost_singular), 0));
+    expect_invalid_argument([&] { (void)inverse(almost_singular); });
+
+    Matrix<double> tiny(2, 2);
+    tiny(0, 0) = 1e-20;
+    tiny(1, 1) = 1e-20;
+    CHECK(det(tiny) != 0.0);
+    const Matrix<double> tiny_inverse = inverse(tiny);
+    CHECK(close(tiny_inverse(0, 0) * tiny(0, 0), 1));
+    CHECK(close(tiny_inverse(1, 1) * tiny(1, 1), 1));
+    CHECK(close(tiny_inverse(0, 1), 0));
+
+    Matrix<double> wide_range(2, 2);
+    wide_range(0, 0) = 1e10;
+    wide_range(1, 1) = 1e-8;
+    CHECK(det(wide_range) != 0.0);
+    const Matrix<double> wide_inverse = inverse(wide_range);
+    CHECK(close(wide_inverse(0, 0) * wide_range(0, 0), 1));
+    CHECK(close(wide_inverse(1, 1) * wide_range(1, 1), 1));
+
+    Matrix<int> integer_matrix(2, 2);
+    integer_matrix(0, 0) = 2;
+    integer_matrix(0, 1) = 1;
+    integer_matrix(1, 0) = 1;
+    integer_matrix(1, 1) = 2;
+    CHECK(close(det(integer_matrix), 3.0));
+    const auto integer_inverse = inverse(integer_matrix);
+    CHECK(std::abs(integer_inverse(0, 0) - 2.0 / 3.0) < 1e-6);
+    CHECK(std::abs(integer_inverse(0, 1) + 1.0 / 3.0) < 1e-6);
+    CHECK(std::abs(integer_inverse(1, 0) + 1.0 / 3.0) < 1e-6);
+    CHECK(std::abs(integer_inverse(1, 1) - 2.0 / 3.0) < 1e-6);
 
     Matrix<double> rectangular(2, 3);
     expect_invalid_argument([&] { (void)det(rectangular); });
@@ -471,6 +531,25 @@ void test_transpose_and_identity() {
     CHECK(close(updated(1, 1), 0.75));
 }
 
+void test_dynamic_square_matrix() {
+    DynamicSquareMatrix<double> matrix(2);
+    CHECK(matrix.rows() == 2);
+    CHECK(matrix.cols() == 2);
+    matrix(0, 0) = 2;
+    matrix(0, 1) = 1;
+    matrix(1, 0) = 1;
+    matrix(1, 1) = 2;
+    CHECK(close(det(matrix), 3));
+
+    const auto inverted = inverse(matrix);
+    CHECK(inverted.rows() == 2);
+    CHECK(inverted.cols() == 2);
+    CHECK(close(inverted(0, 0), 2.0 / 3.0));
+    CHECK(close(inverted(1, 1), 2.0 / 3.0));
+
+    expect_invalid_argument([] { DynamicSquareMatrix<double> empty(0); });
+}
+
 void test_float_arithmetic() {
     Matrix<float, 2, 2> left;
     Matrix<float, 2, 2> right;
@@ -509,6 +588,7 @@ int main() {
     test_inverse_on_the_left();
     test_inverse_on_the_right();
     test_transpose_and_identity();
+    test_dynamic_square_matrix();
     test_float_arithmetic();
 
     if (g_failures != 0) {
