@@ -6,7 +6,7 @@ Cheap GNSS receivers are off by several meters and drop out in tunnels, dense st
 
 Matrix sizes in the filter core are known at compile time, so the library is also a place to compare modern C++ approaches: a hand-written static-size matrix library against dynamic matrices, SIMD, and a batched parallel run. Eigen and filterpy are correctness and speed references. They are not build dependencies.
 
-The full project specification, week plan, and success criteria are in [docs/project.md](docs/project.md) (Ukrainian).
+The full project specification, week plan, and success criteria are in [docs/project.md](docs/project.md). The Ukrainian version is [docs/ua/project.md](docs/ua/project.md).
 
 ## Goals
 
@@ -35,6 +35,7 @@ sensor-fusion/
   apps/cli/      future CLI entry point (apps/cli/main.cpp)
   tests/
   docs/project.md
+  docs/ua/project.md   Ukrainian specification
   data/README.md
 ```
 
