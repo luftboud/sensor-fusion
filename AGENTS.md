@@ -1,6 +1,6 @@
 # Agent notes
 
-Guidance for coding agents working in this repository. The product specification is [docs/project.md](docs/project.md) (Ukrainian). This file records only the decisions already made.
+Guidance for coding agents working in this repository. The product specification is [docs/project.md](docs/project.md). The Ukrainian version is [docs/ua/project.md](docs/ua/project.md). This file records only the decisions already made.
 
 ## What this is
 
@@ -40,4 +40,4 @@ CMake 3.20 or newer. Configuration produces no binaries yet.
 
 ## Do not implement yet
 
-Do not add the NMEA parser, IMU or KITTI readers, the matrix library, the EKF, benchmarks, or the CLI unless a task asks for that work. Identifiers, comments, and new docs other than `docs/project.md` stay in English.
+Do not add the NMEA parser, IMU or KITTI readers, the matrix library, the EKF, benchmarks, or the CLI unless a task asks for that work. Identifiers, comments stay in English.
