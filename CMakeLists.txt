@@ -18,18 +18,9 @@ target_include_directories(sensor_fusion INTERFACE
 
 target_compile_features(sensor_fusion INTERFACE cxx_std_20)
 
-# Martix lib compilation
-add_library(matrix SHARED src/matrix/matrix.cpp)
-add_library(matrix::matrix ALIAS matrix)
-
-target_include_directories(matrix PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>)
-target_compile_features(matrix PUBLIC cxx_std_20)
-
 # Tests
 enable_testing()
 
 add_executable(matrix_tests tests/matrix_tests.cpp)
-target_link_libraries(matrix_tests PRIVATE matrix)
+target_link_libraries(matrix_tests PRIVATE sensor_fusion)
 add_test(NAME matrix_tests COMMAND matrix_tests)

@@ -1,6 +1,7 @@
 #include "matrix/matrix.h"
 
 #include <cmath>
+#include <cstddef>
 #include <iostream>
 #include <stdexcept>
 
@@ -166,6 +167,14 @@ void test_static_det_and_inverse() {
     CHECK(close(det(singular), 0));
     expect_invalid_argument([&] { (void)inverse(singular); });
 
+    SquareMatrix<double, 2> almost_singular;
+    almost_singular(0, 0) = 1;
+    almost_singular(0, 1) = 1;
+    almost_singular(1, 0) = 1;
+    almost_singular(1, 1) = std::nextafter(1.0, 2.0);
+    CHECK(close(det(almost_singular), 0));
+    expect_invalid_argument([&] { (void)inverse(almost_singular); });
+
     Matrix<double, 2, 3> rectangular;
     expect_invalid_argument([&] { (void)det(rectangular); });
     expect_invalid_argument([&] { (void)inverse(rectangular); });
@@ -174,6 +183,13 @@ void test_static_det_and_inverse() {
     integer_identity(0, 0) = 1;
     integer_identity(1, 1) = 1;
     CHECK(det(integer_identity) == 1);
+
+    SquareMatrix<int, 2> integer_matrix;
+    integer_matrix(0, 0) = 2;
+    integer_matrix(0, 1) = 1;
+    integer_matrix(1, 0) = 1;
+    integer_matrix(1, 1) = 2;
+    CHECK(close(det(integer_matrix), 3.0));
     const SquareMatrix<int, 2> integer_inverse = inverse(integer_identity);
     CHECK(integer_inverse(0, 0) == 1);
     CHECK(integer_inverse(0, 1) == 0);
@@ -283,6 +299,178 @@ void test_dynamic_det_and_inverse() {
     expect_invalid_argument([&] { (void)inverse(rectangular); });
 }
 
+template <typename MatrixType>
+void check_identity(const MatrixType& matrix) {
+    CHECK(matrix.rows() == matrix.cols());
+    for (std::size_t row = 0; row < matrix.rows(); ++row) {
+        for (std::size_t col = 0; col < matrix.cols(); ++col) {
+            const double expected = row == col ? 1.0 : 0.0;
+            CHECK(close(matrix(row, col), expected));
+        }
+    }
+}
+
+void test_minimum_size() {
+    Matrix<double, 1, 1> static_value;
+    Matrix<double, 1, 1> static_other;
+    static_value(0, 0) = 4.0;
+    static_other(0, 0) = 1.5;
+
+    CHECK(static_value.rows() == 1);
+    CHECK(static_value.cols() == 1);
+    CHECK(close((static_value + static_other)(0, 0), 5.5));
+    CHECK(close((static_value - static_other)(0, 0), 2.5));
+    CHECK(close((2.0 * static_value)(0, 0), 8.0));
+    CHECK(close((static_value * static_other)(0, 0), 6.0));
+    CHECK(close(det(static_value), 4.0));
+    CHECK(close(inverse(static_value)(0, 0), 0.25));
+
+    Matrix<double> dynamic_value(1, 1);
+    Matrix<double> dynamic_other(1, 1);
+    dynamic_value(0, 0) = 4.0;
+    dynamic_other(0, 0) = 1.5;
+
+    CHECK(dynamic_value.rows() == 1);
+    CHECK(dynamic_value.cols() == 1);
+    CHECK(close((dynamic_value + dynamic_other)(0, 0), 5.5));
+    CHECK(close((dynamic_value - dynamic_other)(0, 0), 2.5));
+    CHECK(close((dynamic_value * 2.0)(0, 0), 8.0));
+    CHECK(close((dynamic_value * dynamic_other)(0, 0), 6.0));
+    CHECK(close(det(dynamic_value), 4.0));
+    CHECK(close(inverse(dynamic_value)(0, 0), 0.25));
+}
+
+void test_nonsquare_add_not_multiple_of_four() {
+    Matrix<double, 2, 3> static_left;
+    Matrix<double, 2, 3> static_right;
+    static_left(0, 0) = 1;
+    static_left(0, 1) = 2;
+    static_left(0, 2) = 3;
+    static_left(1, 0) = 4;
+    static_left(1, 1) = 5;
+    static_left(1, 2) = 6;
+    static_right(0, 0) = 10;
+    static_right(0, 1) = 20;
+    static_right(0, 2) = 30;
+    static_right(1, 0) = 40;
+    static_right(1, 1) = 50;
+    static_right(1, 2) = 60;
+
+    const Matrix<double, 2, 3> static_sum = static_left + static_right;
+    CHECK(static_sum.rows() == 2);
+    CHECK(static_sum.cols() == 3);
+    CHECK(close(static_sum(0, 0), 11));
+    CHECK(close(static_sum(0, 1), 22));
+    CHECK(close(static_sum(0, 2), 33));
+    CHECK(close(static_sum(1, 0), 44));
+    CHECK(close(static_sum(1, 1), 55));
+    CHECK(close(static_sum(1, 2), 66));
+
+    Matrix<double> dynamic_left(2, 3);
+    Matrix<double> dynamic_right(2, 3);
+    dynamic_left(0, 0) = 1;
+    dynamic_left(0, 1) = 2;
+    dynamic_left(0, 2) = 3;
+    dynamic_left(1, 0) = 4;
+    dynamic_left(1, 1) = 5;
+    dynamic_left(1, 2) = 6;
+    dynamic_right(0, 0) = 10;
+    dynamic_right(0, 1) = 20;
+    dynamic_right(0, 2) = 30;
+    dynamic_right(1, 0) = 40;
+    dynamic_right(1, 1) = 50;
+    dynamic_right(1, 2) = 60;
+
+    const Matrix<double> dynamic_sum = dynamic_left + dynamic_right;
+    CHECK(dynamic_sum.rows() == 2);
+    CHECK(dynamic_sum.cols() == 3);
+    CHECK(close(dynamic_sum(0, 0), 11));
+    CHECK(close(dynamic_sum(0, 1), 22));
+    CHECK(close(dynamic_sum(0, 2), 33));
+    CHECK(close(dynamic_sum(1, 0), 44));
+    CHECK(close(dynamic_sum(1, 1), 55));
+    CHECK(close(dynamic_sum(1, 2), 66));
+}
+
+void fill_sample(auto& matrix) {
+    matrix(0, 0) = 1;
+    matrix(0, 1) = 2;
+    matrix(0, 2) = 3;
+    matrix(1, 0) = 0;
+    matrix(1, 1) = 1;
+    matrix(1, 2) = 4;
+    matrix(2, 0) = 5;
+    matrix(2, 1) = 6;
+    matrix(2, 2) = 0;
+}
+
+void test_inverse_on_the_left() {
+    SquareMatrix<double, 3> static_matrix;
+    fill_sample(static_matrix);
+    check_identity(inverse(static_matrix) * static_matrix);
+
+    Matrix<double> dynamic_matrix(3, 3);
+    fill_sample(dynamic_matrix);
+    check_identity(inverse(dynamic_matrix) * dynamic_matrix);
+}
+
+void test_inverse_on_the_right() {
+    SquareMatrix<double, 3> static_matrix;
+    fill_sample(static_matrix);
+    check_identity(static_matrix * inverse(static_matrix));
+
+    Matrix<double> dynamic_matrix(3, 3);
+    fill_sample(dynamic_matrix);
+    check_identity(dynamic_matrix * inverse(dynamic_matrix));
+}
+
+void test_transpose_and_identity() {
+    Matrix<double, 2, 3> wide;
+    wide(0, 0) = 1;
+    wide(0, 1) = 2;
+    wide(0, 2) = 3;
+    wide(1, 0) = 4;
+    wide(1, 1) = 5;
+    wide(1, 2) = 6;
+
+    const Matrix<double, 3, 2> transposed = transpose(wide);
+    CHECK(transposed.rows() == 3);
+    CHECK(transposed.cols() == 2);
+    CHECK(close(transposed(0, 0), 1));
+    CHECK(close(transposed(1, 0), 2));
+    CHECK(close(transposed(2, 0), 3));
+    CHECK(close(transposed(0, 1), 4));
+    CHECK(close(transposed(1, 1), 5));
+    CHECK(close(transposed(2, 1), 6));
+
+    Matrix<double> dynamic_wide(2, 3);
+    dynamic_wide(0, 0) = 1;
+    dynamic_wide(0, 1) = 2;
+    dynamic_wide(0, 2) = 3;
+    dynamic_wide(1, 0) = 4;
+    dynamic_wide(1, 1) = 5;
+    dynamic_wide(1, 2) = 6;
+    const Matrix<double> dynamic_transposed = transpose(dynamic_wide);
+    CHECK(dynamic_transposed.rows() == 3);
+    CHECK(dynamic_transposed.cols() == 2);
+    CHECK(close(dynamic_transposed(2, 1), 6));
+    CHECK(close(dynamic_transposed(1, 0), 2));
+
+    const Matrix<double, 3, 3> static_identity = identity<double, 3>();
+    check_identity(static_identity);
+    check_identity(identity<double>(3));
+
+    Matrix<double, 2, 2> state = identity<double, 2>();
+    Matrix<double, 2, 2> gain;
+    gain(0, 0) = 0.5;
+    gain(1, 1) = 0.25;
+    const Matrix<double, 2, 2> updated = (identity<double, 2>() - gain) * state;
+    CHECK(close(updated(0, 0), 0.5));
+    CHECK(close(updated(0, 1), 0));
+    CHECK(close(updated(1, 0), 0));
+    CHECK(close(updated(1, 1), 0.75));
+}
+
 void test_float_arithmetic() {
     Matrix<float, 2, 2> left;
     Matrix<float, 2, 2> right;
@@ -316,6 +504,11 @@ int main() {
     test_dynamic_access();
     test_dynamic_arithmetic();
     test_dynamic_det_and_inverse();
+    test_minimum_size();
+    test_nonsquare_add_not_multiple_of_four();
+    test_inverse_on_the_left();
+    test_inverse_on_the_right();
+    test_transpose_and_identity();
     test_float_arithmetic();
 
     if (g_failures != 0) {

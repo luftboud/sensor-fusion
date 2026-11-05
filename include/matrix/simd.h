@@ -3,13 +3,18 @@
 
 #include <cstddef>
 
+// Set MATRIX_USE_SIMD to 0 before including this header to keep the scalar path.
+#ifndef MATRIX_USE_SIMD
+#define MATRIX_USE_SIMD 1
+#endif
+
 // For different ISA here are provided different options of simd libs
 //   x86-64 -- SSE2, or AVX (when the compiler was given -mavx / /arch:AVX)
 //   ARM64 -- NEON
 // Anything else stays scalar.
 // Loads and stores are unaligned: std::vector does not promise 32-byte alignment.
 
-#if defined(_M_X64) || defined(__x86_64__)
+#if MATRIX_USE_SIMD && (defined(_M_X64) || defined(__x86_64__))
     #if defined(__AVX__)
         #define MATRIX_SIMD_AVX 1
     #else
@@ -20,7 +25,7 @@
     #else
         #include <immintrin.h>
     #endif
-#elif defined(_M_ARM64) || defined(__aarch64__)
+#elif MATRIX_USE_SIMD && (defined(_M_ARM64) || defined(__aarch64__))
     #define MATRIX_SIMD_NEON 1
     #include <arm_neon.h>
 #endif
@@ -36,7 +41,7 @@ inline constexpr std::size_t width = 1;
 #endif
 
 inline bool& enabled() noexcept {
-    static bool value = true;
+    static bool value = MATRIX_USE_SIMD != 0;
     return value;
 }
 
