@@ -1,4 +1,5 @@
-#pragma once
+#ifndef SENSOR_FUSION_NMEA_TOKENISER_H
+#define SENSOR_FUSION_NMEA_TOKENISER_H
 
 /*
  * Токенізатор NMEA-речення.
@@ -64,3 +65,5 @@ inline std::optional<NmeaFields> split_fields(std::string_view sentence) {
     }
     return result;
 }
+
+#endif // SENSOR_FUSION_NMEA_TOKENISER_H
