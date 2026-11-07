@@ -28,3 +28,7 @@ add_test(NAME matrix_tests COMMAND matrix_tests)
 add_executable(nmea_tests tests/nmea_tests.cpp)
 target_link_libraries(nmea_tests PRIVATE sensor_fusion)
 add_test(NAME nmea_tests COMMAND nmea_tests)
+
+add_executable(imu_tests tests/imu_tests.cpp)
+target_link_libraries(imu_tests PRIVATE sensor_fusion)
+add_test(NAME imu_tests COMMAND imu_tests)
