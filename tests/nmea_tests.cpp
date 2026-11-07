@@ -221,6 +221,19 @@ void TestLengthLimit() {
   CHECK(Rejects(Frame(far_too_long)));
 }
 
+// NMEA 0183 allows 82 characters per sentence, including '$' and CR LF.
+void TestStandardSentenceLength() {
+  CHECK(kMaxBodySize == 76);
+
+  const std::string longest = Frame(std::string(kMaxBodySize, 'A'));
+  CHECK(longest.size() == 82);
+  CHECK(Accepts(longest, std::string(kMaxBodySize, 'A')));
+
+  const std::string too_long = Frame(std::string(kMaxBodySize + 1, 'A'));
+  CHECK(too_long.size() == 83);
+  CHECK(Rejects(too_long));
+}
+
 void TestStreamOfSentences() {
   std::string stream = "noise";
   stream += kGga;
@@ -434,6 +447,7 @@ int main() {
   TestBytesOutsideSentences();
   TestDollarRestartsSentence();
   TestLengthLimit();
+  TestStandardSentenceLength();
   TestStreamOfSentences();
   TestSentenceSurvivesUntilNextDollar();
 

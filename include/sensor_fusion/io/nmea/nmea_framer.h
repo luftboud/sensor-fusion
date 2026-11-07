@@ -20,8 +20,9 @@ namespace sensor_fusion {
 //   }
 class NmeaParser {
  public:
-  // Most bytes kept between '$' and '*'.
-  static constexpr std::size_t kMaxBodySize = 82;
+  // Most bytes between '$' and '*'. NMEA 0183 limits a whole sentence to 82
+  // characters, counting '$', "*hh" and CR LF, which leaves 82 - 6 = 76.
+  static constexpr std::size_t kMaxBodySize = 76;
 
   // Returns the last framed sentence without '$', '*', the checksum and the
   // line end. The view points into the parser and stays valid until the next
