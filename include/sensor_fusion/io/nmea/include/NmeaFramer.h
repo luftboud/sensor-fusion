@@ -1,3 +1,6 @@
+#ifndef SENSOR_FUSION_NMEA_FRAMER_H
+#define SENSOR_FUSION_NMEA_FRAMER_H
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -88,3 +91,5 @@ public:
         return false;
     };
 };
+
+#endif // SENSOR_FUSION_NMEA_FRAMER_H

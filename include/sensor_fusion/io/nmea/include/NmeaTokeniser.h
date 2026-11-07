@@ -1,9 +1,13 @@
-#pragma once
+#ifndef SENSOR_FUSION_NMEA_TOKENISER_H
+#define SENSOR_FUSION_NMEA_TOKENISER_H
 
 /*
  * Токенізатор NMEA-речення.
  *
- * Якщо в рядку n ком, то полів рівно n + 1. Порожнє поле — це string_view
+ * Роздільник за замовчуванням ','. Для KITTI передайте ' ':
+ * split_fields(line, ' ').
+ *
+ * Якщо в рядку n роздільників, то полів рівно n + 1. Порожнє поле — це string_view
  * довжиною 0, і воно займає свою позицію. Більше ніяких правил немає:
  * токенізатор не обрізає пробіли і не перевіряє вміст.
  *
@@ -45,18 +49,18 @@ private:
     std::size_t counter = 0;
 };
 
-inline std::optional<NmeaFields> split_fields(std::string_view sentence) {
+inline std::optional<NmeaFields> split_fields(std::string_view sentence, char delimiter = ',') {
     NmeaFields result;
 
     std::size_t start = 0;
-    std::size_t end = sentence.find(',');
+    std::size_t end = sentence.find(delimiter);
 
     while (end != std::string_view::npos) {
         if (!result.push(sentence.substr(start, end - start))) {
             return std::nullopt;
         }
         start = end + 1;
-        end = sentence.find(',', start);
+        end = sentence.find(delimiter, start);
     }
 
     if (!result.push(sentence.substr(start))) {
@@ -64,3 +68,5 @@ inline std::optional<NmeaFields> split_fields(std::string_view sentence) {
     }
     return result;
 }
+
+#endif // SENSOR_FUSION_NMEA_TOKENISER_H
