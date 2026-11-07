@@ -24,3 +24,7 @@ enable_testing()
 add_executable(matrix_tests tests/matrix_tests.cpp)
 target_link_libraries(matrix_tests PRIVATE sensor_fusion)
 add_test(NAME matrix_tests COMMAND matrix_tests)
+
+add_executable(nmea_tests tests/nmea_tests.cpp)
+target_link_libraries(nmea_tests PRIVATE sensor_fusion)
+add_test(NAME nmea_tests COMMAND nmea_tests)
