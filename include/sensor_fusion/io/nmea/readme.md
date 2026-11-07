@@ -86,7 +86,7 @@ stateDiagram-v2
 ## Використання
 
 ```cpp
-#include "nmea_parser.hpp"
+#include "sensor_fusion/io/nmea/include/parser.h"
 
 NmeaParser parser;
 
