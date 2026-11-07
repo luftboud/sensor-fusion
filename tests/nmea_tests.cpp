@@ -239,8 +239,9 @@ void test_sentence_survives_until_next_dollar() {
     CHECK(parser.get_sentence().empty());
 }
 
-bool splits_into(std::string_view sentence, const std::vector<std::string_view>& expected) {
-    const std::optional<NmeaFields> fields = split_fields(sentence);
+bool splits_into(std::string_view sentence, const std::vector<std::string_view>& expected,
+                 char delimiter = ',') {
+    const std::optional<NmeaFields> fields = split_fields(sentence, delimiter);
     if (!fields.has_value() || fields->size() != expected.size()) {
         return false;
     }
@@ -287,6 +288,50 @@ void test_split_real_sentences() {
                                  "0.9", "545.4", "M", "46.9", "M", "", ""}));
     CHECK(splits_into(rmc_body, {"GPRMC", "123519", "A", "4807.038", "N", "01131.000", "E",
                                  "022.4", "084.4", "230394", "003.1", "W"}));
+}
+
+void test_split_space_delimiter() {
+    CHECK(splits_into("A", {"A"}, ' '));
+    CHECK(splits_into("A B C", {"A", "B", "C"}, ' '));
+    CHECK(splits_into("", {""}, ' '));
+    CHECK(splits_into(" ", {"", ""}, ' '));
+    CHECK(splits_into("A  B", {"A", "", "B"}, ' '));
+    CHECK(splits_into(" A", {"", "A"}, ' '));
+    CHECK(splits_into("A ", {"A", ""}, ' '));
+}
+
+void test_split_space_delimiter_ignores_other_separators() {
+    CHECK(splits_into("1,5 2", {"1,5", "2"}, ' '));
+    CHECK(splits_into("A\tB C", {"A\tB", "C"}, ' '));
+    CHECK(splits_into("1 2\r\n", {"1", "2\r\n"}, ' '));
+    CHECK(splits_into("A,B C", {"A", "B C"}, ','));
+    CHECK(splits_into("A,B C", {"A", "B C"}));
+}
+
+void test_split_kitti_oxts_line() {
+    // Shaped like a KITTI oxts record: 30 space-separated values. The numbers
+    // are illustrative, not taken from a real drive.
+    constexpr std::string_view line =
+        "49.015003823272 8.4342971002335 116.43032836914 0.035752 0.00903 "
+        "-2.6087069803847 -4.1729700268209 2.4888127772796 0.12542351318744 "
+        "4.8216164543621 0.081180209286318 0.26213843786713 0.2068395575419 "
+        "9.7920389437861 -0.35232463246227 0.67116108941043 9.7487722519064 "
+        "-0.0070934627317466 -0.0034766233853478 0.030541962571628 "
+        "-0.0057622734932009 -0.0049123227213927 0.030683538040474 "
+        "0.21650295197093 0.12401215202203 4 10 4 4 0";
+
+    const std::optional<NmeaFields> fields = split_fields(line, ' ');
+    CHECK(fields.has_value());
+    if (fields.has_value()) {
+        CHECK(fields->size() == 30);
+        CHECK(fields->field(0) == "49.015003823272");
+        CHECK(fields->field(5) == "-2.6087069803847");
+        CHECK(fields->field(26) == "10");
+        CHECK(fields->field(29) == "0");
+        CHECK(fields->field(30).empty());
+    }
+
+    CHECK(splits_into(line, {line}));
 }
 
 void test_field_count_is_commas_plus_one() {
@@ -385,6 +430,9 @@ int main() {
     test_split_empty_fields();
     test_split_keeps_content_as_is();
     test_split_real_sentences();
+    test_split_space_delimiter();
+    test_split_space_delimiter_ignores_other_separators();
+    test_split_kitti_oxts_line();
     test_field_count_is_commas_plus_one();
     test_too_many_fields();
     test_field_out_of_range();
