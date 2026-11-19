@@ -148,6 +148,30 @@ void TestStripTrailingWhitespace() {
   CHECK(StripTrailingWhitespace("").empty());
 }
 
+// `const T value;` compiles only when every member of T has an initializer,
+// so this test also breaks the build if a field is added without one.
+void TestDefaultsAreZero() {
+  const OxtsRecord record;
+  CHECK(record.lat == 0.0 && record.lon == 0.0 && record.alt == 0.0);
+  CHECK(record.roll == 0.0 && record.pitch == 0.0 && record.yaw == 0.0);
+  CHECK(record.ax == 0.0 && record.ay == 0.0 && record.az == 0.0);
+  CHECK(record.wx == 0.0 && record.wy == 0.0 && record.wz == 0.0);
+  CHECK(record.pos_accuracy == 0.0 && record.vel_accuracy == 0.0);
+  CHECK(record.navstat == 0 && record.numsats == 0 && record.posmode == 0);
+  CHECK(record.velmode == 0 && record.orimode == 0);
+
+  const ImuSample sample;
+  CHECK(sample.t == 0.0);
+  CHECK(sample.accel[0] == 0.0 && sample.accel[1] == 0.0 &&
+        sample.accel[2] == 0.0);
+  CHECK(sample.gyro[0] == 0.0 && sample.gyro[1] == 0.0 &&
+        sample.gyro[2] == 0.0);
+
+  const KittiReadResult result;
+  CHECK(result.ok() && result.index == 0 && result.start_ns == 0);
+  CHECK(result.samples.empty());
+}
+
 void TestParseRealOxtsLine() {
   const std::optional<OxtsRecord> record = ParseOxtsLine(kRealLine);
   CHECK(record.has_value());
@@ -473,6 +497,7 @@ void TestReadExtraDataFile() {
 
 int main() {
   TestStripTrailingWhitespace();
+  TestDefaultsAreZero();
   TestParseRealOxtsLine();
   TestParseFieldOrder();
   TestParseKittiWholeNumberForms();
