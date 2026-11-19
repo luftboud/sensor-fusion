@@ -50,7 +50,7 @@ class NmeaParser {
           expected_checksum_digits_ = 0;
           expected_checksum_ = 0;
           state_ = State::kCheckStarChar;
-        } else if (size_ < buffer_.size() && byte >= 0x20 && byte <= 0x7E) {
+        } else if (size_ < buffer_.size() && IsPrintableAscii(byte)) {
           buffer_[size_] = static_cast<char>(byte);
           ++size_;
           checksum_ ^= byte;
@@ -96,6 +96,12 @@ class NmeaParser {
     kCheckStarChar,  // Reads the two hex digits after '*'.
     kNewRowChar,     // Skips '\r' and compares the checksums on '\n'.
   };
+
+  // True for printable ASCII: from ' ' (0x20) to '~' (0x7E). Control
+  // characters, DEL (0x7F) and bytes above 0x7F are not allowed in a body.
+  static constexpr bool IsPrintableAscii(unsigned char byte) {
+    return byte >= ' ' && byte <= '~';
+  }
 
   // Returns the value of a hex digit in either case, or -1.
   static int HexValue(char c) {
