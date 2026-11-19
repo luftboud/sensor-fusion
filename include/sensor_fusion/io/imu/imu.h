@@ -21,7 +21,25 @@
 
 namespace sensor_fusion {
 
-// One IMU measurement in the vehicle frame.
+// One IMU measurement.
+//
+// Frame: the body frame of the KITTI OXTS unit, fixed to the car. x points to
+// the front, y to the left and z up, so the frame is right-handed. The axes
+// tilt with the car's roll and pitch; they are not levelled to the earth
+// surface. OxtsRecord also has levelled values (af/al/au, wf/wl/wu), but
+// ToImuSample() does not use them.
+//
+// accel is the accelerometer reading (ax, ay, az): specific force, so gravity
+// is included. A level car at rest reads about (0, 0, +9.81).
+//
+// gyro is the angular rate (wx, wy, wz) around x, y and z. A positive rate
+// turns counter-clockwise when seen from the tip of the axis (right-hand
+// rule): positive wx lifts the left side, positive wy lowers the front,
+// positive wz turns left.
+//
+// t is relative: seconds since the first sample of the drive. The absolute
+// time of the first sample is KittiReadResult::start_ns, so this sample was
+// taken at start_ns + t * 1e9 ns.
 struct ImuSample {
   double t = 0.0;                    // Seconds since the first sample.
   std::array<double, 3> accel = {};  // m/s^2, specific force (with gravity).
@@ -35,39 +53,40 @@ struct ImuSample {
 struct OxtsRecord {
   static constexpr std::size_t kFieldCount = 30;
 
-  double lat;  // Latitude of the oxts unit (deg).
-  double lon;  // Longitude of the oxts unit (deg).
-  double alt;  // Altitude of the oxts unit (m).
+  double lat = 0.0;  // Latitude of the oxts unit (deg).
+  double lon = 0.0;  // Longitude of the oxts unit (deg).
+  double alt = 0.0;  // Altitude of the oxts unit (m).
   // Roll angle (rad): 0 = level, positive = left side up, range -pi..+pi.
-  double roll;
+  double roll = 0.0;
   // Pitch angle (rad): 0 = level, positive = front down, range -pi/2..+pi/2.
-  double pitch;
+  double pitch = 0.0;
   // Heading (rad): 0 = east, positive = counter-clockwise, range -pi..+pi.
-  double yaw;
-  double vn;  // Velocity towards north (m/s).
-  double ve;  // Velocity towards east (m/s).
-  double vf;  // Forward velocity, parallel to the earth surface (m/s).
-  double vl;  // Leftward velocity, parallel to the earth surface (m/s).
-  double vu;  // Upward velocity, perpendicular to the earth surface (m/s).
-  double ax;  // Acceleration along x, towards the vehicle front (m/s^2).
-  double ay;  // Acceleration along y, towards the vehicle left (m/s^2).
-  double az;  // Acceleration along z, towards the vehicle top (m/s^2).
-  double af;  // Forward acceleration (m/s^2).
-  double al;  // Leftward acceleration (m/s^2).
-  double au;  // Upward acceleration (m/s^2).
-  double wx;  // Angular rate around x (rad/s).
-  double wy;  // Angular rate around y (rad/s).
-  double wz;  // Angular rate around z (rad/s).
-  double wf;  // Angular rate around the forward axis (rad/s).
-  double wl;  // Angular rate around the leftward axis (rad/s).
-  double wu;  // Angular rate around the upward axis (rad/s).
-  double pos_accuracy;  // Position accuracy, north/east (m).
-  double vel_accuracy;  // Velocity accuracy, north/east (m/s).
-  int navstat;          // Navigation status.
-  int numsats;          // Satellites tracked by the primary GPS receiver.
-  int posmode;          // Position mode of the primary GPS receiver.
-  int velmode;          // Velocity mode of the primary GPS receiver.
-  int orimode;          // Orientation mode of the primary GPS receiver.
+  double yaw = 0.0;
+  double vn = 0.0;  // Velocity towards north (m/s).
+  double ve = 0.0;  // Velocity towards east (m/s).
+  double vf = 0.0;  // Forward velocity, parallel to the earth surface (m/s).
+  double vl = 0.0;  // Leftward velocity, parallel to the earth surface (m/s).
+  // Upward velocity, perpendicular to the earth surface (m/s).
+  double vu = 0.0;
+  double ax = 0.0;  // Acceleration along x, towards the vehicle front (m/s^2).
+  double ay = 0.0;  // Acceleration along y, towards the vehicle left (m/s^2).
+  double az = 0.0;  // Acceleration along z, towards the vehicle top (m/s^2).
+  double af = 0.0;  // Forward acceleration (m/s^2).
+  double al = 0.0;  // Leftward acceleration (m/s^2).
+  double au = 0.0;  // Upward acceleration (m/s^2).
+  double wx = 0.0;  // Angular rate around x (rad/s).
+  double wy = 0.0;  // Angular rate around y (rad/s).
+  double wz = 0.0;  // Angular rate around z (rad/s).
+  double wf = 0.0;  // Angular rate around the forward axis (rad/s).
+  double wl = 0.0;  // Angular rate around the leftward axis (rad/s).
+  double wu = 0.0;  // Angular rate around the upward axis (rad/s).
+  double pos_accuracy = 0.0;  // Position accuracy, north/east (m).
+  double vel_accuracy = 0.0;  // Velocity accuracy, north/east (m/s).
+  int navstat = 0;          // Navigation status.
+  int numsats = 0;          // Satellites tracked by the primary GPS receiver.
+  int posmode = 0;          // Position mode of the primary GPS receiver.
+  int velmode = 0;          // Velocity mode of the primary GPS receiver.
+  int orimode = 0;          // Orientation mode of the primary GPS receiver.
 };
 
 // Example line:
@@ -87,8 +106,10 @@ enum class KittiError : std::uint8_t {
 
 struct KittiReadResult {
   KittiError error = KittiError::kNone;
-  std::size_t index = 0;           // Line or file number of the error.
-  std::int64_t start_ns = 0;       // Absolute time of the first sample (ns).
+  std::size_t index = 0;  // Line or file number of the error.
+  // Absolute time of the first sample: nanoseconds since 1970-01-01 00:00:00,
+  // see ParseKittiTimestamp(). Every ImuSample::t is relative to it.
+  std::int64_t start_ns = 0;
   std::vector<ImuSample> samples;  // Empty on error.
 
   [[nodiscard]] bool ok() const { return error == KittiError::kNone; }
@@ -257,7 +278,9 @@ inline ImuSample ToImuSample(double t, const OxtsRecord& record) {
 }
 
 // Converts "2011-09-26 13:08:25.077436928" to nanoseconds since
-// 1970-01-01 00:00:00. The fraction may have 1 to 9 digits.
+// 1970-01-01 00:00:00. The fraction may have 1 to 9 digits. The text is
+// converted as if it were UTC: KITTI does not say which time zone it uses,
+// so use the result for differences between samples, not as wall-clock time.
 inline std::optional<std::int64_t> ParseKittiTimestamp(std::string_view line) {
   const std::string_view s = internal::StripTrailingWhitespace(line);
 
