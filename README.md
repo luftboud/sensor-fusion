@@ -31,11 +31,13 @@ sensor-fusion/
   include/sensor_fusion/
     io/          NMEA, IMU, and KITTI readers
     matrix/      compile-time-sized matrices
-    ekf/         dynamic-matrix baseline, then the static 2D model (3D if time allows)
+    ekf/         2D scenario types; predict/update is a later task (3D if time allows)
   apps/cli/      future CLI entry point (apps/cli/main.cpp)
   tests/
   docs/project.md
   docs/ua/project.md   Ukrainian specification
+  docs/ekf-scenario.md
+  docs/ua/ekf-scenario.md   2D scenario types, in Ukrainian
   data/README.md
 ```
 
