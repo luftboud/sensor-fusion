@@ -2,7 +2,7 @@
 
 The 2D filter, the synthetic drive, and the comparison all share one set of records. The records are `State2d` and `EkfEstimate` in `include/sensor_fusion/ekf/state.h`, and `PlanarImu`, `GnssFix`, `ReferenceSample`, and `Scenario` in `include/sensor_fusion/ekf/scenario.h`.
 
-This note is the contract those headers spell out. The predict/update step is a later task. So is the generator that fills a `Scenario`, and so is the 15-second cut in the GNSS series.
+This note is the contract those headers spell out. The predict/update step is a later task. The synthetic drive in `include/sensor_fusion/sim/synthetic_drive.h` fills a `Scenario` and cuts the 15-second outage from the GNSS series.
 
 ## State
 
@@ -52,7 +52,7 @@ The estimates are a sequence beside the log, one entry per IMU step. `Scenario` 
 
 ## Scenario
 
-`Scenario` holds three series: `imu`, `gnss`, and `reference`. An empty scenario is a valid value. The headers do not check the shape of a filled drive. A filled drive has this shape:
+`Scenario` holds three series: `imu`, `gnss`, and `reference`. An empty scenario is a valid value. `IsWellFormed()` checks that a filled drive has this shape:
 
 - `reference` and `imu` have the same length, and `reference[i].t == imu[i].t`.
 - Time in each series is strictly increasing.
