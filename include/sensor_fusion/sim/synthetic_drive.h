@@ -22,9 +22,12 @@ namespace sensor_fusion {
 //   gnss       the exact position at each fix time plus white noise, with
 //              no fixes inside the outage window.
 //
-// Input timing: imu[i] holds over [t[i], t[i+1]). The state at t[i+1] is the
-// state at t[i] moved by imu[i] for dt = t[i+1] - t[i]. The last sample has
-// no next step, and it repeats the inputs of the last segment.
+// Input timing, as for PlanarImu: imu[i] is the reading at the moment t[i].
+// The prediction holds it over [t[i], t[i+1]) and integrates with
+// dt = t[i+1] - t[i]: the state at t[i+1] is the state at t[i] moved by
+// imu[i]. A segment change lands on a step, so the reading at that moment
+// already belongs to the new segment. The last sample has no next step, and
+// it repeats the inputs of the last segment.
 //
 //   const std::optional<Scenario> drive =
 //       GenerateScenario(DemoDrive(), SyntheticConfig{});

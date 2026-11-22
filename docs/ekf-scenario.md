@@ -22,6 +22,8 @@ With that heading, the position rates are `v * cos(yaw)` to the east and `v * si
 
 `ax` and `wz` are body-frame axes, the pair the [KITTI survey](kitti-oxts-survey.md#two-axis-frames) keeps for the flat model. `ax` is specific force along the car's forward axis, so pitch leaves a piece of gravity in it. `wz` is the yaw rate about the car's up axis; positive turns left. The levelled OXTS pair `af` and `wu` is a different reading.
 
+`imu[i]` is the reading at the moment `t[i]`. The prediction holds it over `[t[i], t[i+1])` and integrates with `dt = t[i+1] - t[i]`. Indices start at zero, so `imu[0]` moves the state from `t[0]` to `t[1]`. The last sample has no next step and moves nothing.
+
 `GnssFix` is one satellite fix: `t`, `east`, `north`. The coordinates use the same origin as `State2d`. A fix that is later than the start of the drive is not at `(0, 0)`.
 
 ## Clock and origin
