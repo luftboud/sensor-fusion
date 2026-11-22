@@ -32,6 +32,7 @@ sensor-fusion/
     io/          NMEA, IMU, and KITTI readers
     matrix/      compile-time-sized matrices
     ekf/         2D scenario types; predict/update is a later task (3D if time allows)
+    sim/         synthetic 2D drive that fills a scenario
   apps/cli/      future CLI entry point (apps/cli/main.cpp)
   tests/
   docs/project.md

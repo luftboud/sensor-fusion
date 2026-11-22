@@ -1,6 +1,7 @@
 #ifndef SENSOR_FUSION_EKF_SCENARIO_H_
 #define SENSOR_FUSION_EKF_SCENARIO_H_
 
+#include <cstddef>
 #include <vector>
 
 #include "sensor_fusion/ekf/state.h"
@@ -67,6 +68,40 @@ struct Scenario {
   std::vector<GnssFix> gnss;               // Fixes that exist. A gap is an outage.
   std::vector<ReferenceSample> reference;  // Comparison series, one per IMU step.
 };
+
+// Returns true for an empty scenario, and for a filled one that has every
+// property listed above Scenario. A NaN time fails the order checks. The
+// values themselves are not checked.
+inline bool IsWellFormed(const Scenario& scenario) {
+  const std::vector<PlanarImu>& imu = scenario.imu;
+  const std::vector<GnssFix>& gnss = scenario.gnss;
+  const std::vector<ReferenceSample>& reference = scenario.reference;
+  if (reference.empty()) {
+    return imu.empty() && gnss.empty();
+  }
+  if (imu.size() != reference.size()) {
+    return false;
+  }
+  const ReferenceSample& origin = reference.front();
+  if (origin.t != 0.0 || origin.state.east != 0.0 ||
+      origin.state.north != 0.0) {
+    return false;
+  }
+  for (std::size_t i = 0; i < reference.size(); ++i) {
+    if (imu[i].t != reference[i].t) {
+      return false;
+    }
+    if (i > 0 && !(reference[i - 1].t < reference[i].t)) {
+      return false;
+    }
+  }
+  for (std::size_t i = 1; i < gnss.size(); ++i) {
+    if (!(gnss[i - 1].t < gnss[i].t)) {
+      return false;
+    }
+  }
+  return true;
+}
 
 }  // namespace sensor_fusion
 

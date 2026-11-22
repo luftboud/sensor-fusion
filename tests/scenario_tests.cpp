@@ -1,4 +1,6 @@
+#include <cstddef>
 #include <iostream>
+#include <limits>
 
 #include "sensor_fusion/ekf/scenario.h"
 #include "sensor_fusion/ekf/state.h"
@@ -7,6 +9,7 @@ namespace {
 
 using sensor_fusion::EkfEstimate;
 using sensor_fusion::GnssFix;
+using sensor_fusion::IsWellFormed;
 using sensor_fusion::PlanarImu;
 using sensor_fusion::ReferenceSample;
 using sensor_fusion::Scenario;
@@ -96,11 +99,101 @@ void TestGnssTimeStaysBetweenImuSteps() {
   CHECK(state.v == -1.0);
 }
 
+// Three IMU steps 0.1 s apart and two fixes between them.
+Scenario SmallDrive() {
+  Scenario scenario;
+  scenario.imu = {{.t = 0.0}, {.t = 0.1}, {.t = 0.2}};
+  scenario.reference = {
+      {.t = 0.0},
+      {.t = 0.1, .state = {.east = 1.0}},
+      {.t = 0.2, .state = {.east = 2.0}},
+  };
+  scenario.gnss = {{.t = 0.05, .east = 0.5}, {.t = 0.15, .east = 1.5}};
+  return scenario;
+}
+
+void TestIsWellFormed() {
+  CHECK(IsWellFormed(Scenario{}));
+  CHECK(IsWellFormed(SmallDrive()));
+
+  Scenario scenario = SmallDrive();
+  scenario.gnss.clear();  // The whole drive is an outage.
+  CHECK(IsWellFormed(scenario));
+
+  scenario = SmallDrive();
+  scenario.reference[0].state.yaw = 1.0;  // yaw and v at the origin are free.
+  scenario.reference[0].state.v = 3.0;
+  CHECK(IsWellFormed(scenario));
+}
+
+void TestIsWellFormedRejects() {
+  Scenario scenario = SmallDrive();
+  scenario.imu.pop_back();
+  CHECK(!IsWellFormed(scenario));
+
+  scenario = SmallDrive();
+  scenario.imu[1].t = 0.11;
+  CHECK(!IsWellFormed(scenario));
+
+  scenario = SmallDrive();
+  scenario.imu[2].t = 0.1;
+  scenario.reference[2].t = 0.1;
+  CHECK(!IsWellFormed(scenario));
+
+  scenario = SmallDrive();
+  scenario.imu[2].t = 0.05;
+  scenario.reference[2].t = 0.05;
+  CHECK(!IsWellFormed(scenario));
+
+  scenario = SmallDrive();
+  for (std::size_t i = 0; i < scenario.imu.size(); ++i) {
+    scenario.imu[i].t += 1.0;
+    scenario.reference[i].t += 1.0;
+  }
+  CHECK(!IsWellFormed(scenario));
+
+  scenario = SmallDrive();
+  scenario.reference[0].state.east = 0.5;
+  CHECK(!IsWellFormed(scenario));
+
+  scenario = SmallDrive();
+  scenario.reference[0].state.north = -0.5;
+  CHECK(!IsWellFormed(scenario));
+
+  scenario = SmallDrive();
+  scenario.gnss[1].t = scenario.gnss[0].t;
+  CHECK(!IsWellFormed(scenario));
+
+  scenario = SmallDrive();
+  scenario.gnss[1].t = 0.01;
+  CHECK(!IsWellFormed(scenario));
+
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  scenario = SmallDrive();
+  scenario.imu[1].t = nan;
+  scenario.reference[1].t = nan;
+  CHECK(!IsWellFormed(scenario));
+
+  scenario = SmallDrive();
+  scenario.gnss[1].t = nan;
+  CHECK(!IsWellFormed(scenario));
+
+  // IMU steps or fixes without a reference have no origin.
+  Scenario imu_only;
+  imu_only.imu = {PlanarImu{}};
+  CHECK(!IsWellFormed(imu_only));
+  Scenario gnss_only;
+  gnss_only.gnss = {GnssFix{}};
+  CHECK(!IsWellFormed(gnss_only));
+}
+
 }  // namespace
 
 int main() {
   TestDefaultsAreZero();
   TestGnssTimeStaysBetweenImuSteps();
+  TestIsWellFormed();
+  TestIsWellFormedRejects();
 
   if (failure_count != 0) {
     std::cerr << failure_count << " checks failed\n";

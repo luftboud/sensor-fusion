@@ -36,3 +36,7 @@ add_test(NAME imu_tests COMMAND imu_tests)
 add_executable(scenario_tests tests/scenario_tests.cpp)
 target_link_libraries(scenario_tests PRIVATE sensor_fusion)
 add_test(NAME scenario_tests COMMAND scenario_tests)
+
+add_executable(synthetic_drive_tests tests/synthetic_drive_tests.cpp)
+target_link_libraries(synthetic_drive_tests PRIVATE sensor_fusion)
+add_test(NAME synthetic_drive_tests COMMAND synthetic_drive_tests)
