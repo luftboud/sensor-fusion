@@ -20,6 +20,11 @@ namespace sensor_fusion {
 // See docs/kitti-oxts-survey.md.
 //
 // t is seconds on the drive clock. Zero is the first reference sample.
+//
+// imu[i] is the reading at the moment t[i]. The prediction holds it over
+// [t[i], t[i+1]) and integrates with dt = t[i+1] - t[i], so imu[0] moves the
+// state from t[0] to t[1]. The last sample has no next step and moves
+// nothing.
 struct PlanarImu {
   double t = 0.0;   // Seconds since the first reference sample.
   double ax = 0.0;  // Forward specific force (m/s^2), body x.
