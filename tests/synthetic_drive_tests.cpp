@@ -167,6 +167,21 @@ void TestRejectsBadConfig() {
   CHECK(RejectsConfig([](SyntheticConfig& c) { c.gnss_period = 1e-9; }));
 }
 
+// 1e-17 s is below the resolution of a double near 1, so twelve fixes would
+// share a few times. Such a drive is not well formed.
+void TestRejectsRepeatedFixTimes() {
+  SyntheticConfig config = Exact();
+  config.gnss_offset = std::nextafter(1.0, 0.0);
+  config.gnss_period = 1e-17;
+  CHECK(!GenerateScenario({{.duration = 1.0}}, config).has_value());
+
+  // The same offset with a usable period gives one fix.
+  config.gnss_period = 1.0;
+  const std::optional<Scenario> scenario =
+      GenerateScenario({{.duration = 1.0}}, config);
+  CHECK(scenario.has_value() && scenario->gnss.size() == 1);
+}
+
 void TestRejectsBadSegment() {
   CHECK(!RejectsSegment({.duration = 0.0}));
   CHECK(RejectsSegment({.duration = -1.0}));
@@ -572,6 +587,7 @@ void TestDemoDrive() {
 
 int main() {
   TestRejectsBadConfig();
+  TestRejectsRepeatedFixTimes();
   TestRejectsBadSegment();
   TestEmptyDrive();
   TestTimeline();
