@@ -118,7 +118,7 @@ class GaussianNoise {
 
 // Moves a state by dt with the segment's acceleration and yaw rate. The
 // midpoint rule is exact for a straight line at constant acceleration. On a
-// turn, the step comes out shorter than the arc by about
+// turn at constant speed, the step is longer than the true chord by about
 // (yaw_rate * dt)^2 / 24 of its length.
 inline State2d StepState(const State2d& state, const DriveSegment& segment,
                          double dt) {
@@ -207,9 +207,11 @@ constexpr std::uint32_t kGnssStream = 2;
 // the end of the drive. Fixes fall at gnss_offset + k * gnss_period up to the
 // end of the drive, except in [outage_start, outage_start + outage_duration).
 //
-// The result passes IsWellFormed(). Returns nullopt when a setting or a
-// segment is invalid: see internal::IsValidConfig() and
-// internal::StepInputs().
+// Returns nullopt when a setting or a segment is invalid, see
+// internal::IsValidConfig() and internal::StepInputs(), and when the drive
+// would not pass IsWellFormed(). A returned scenario always passes it.
+//
+// See docs/synthetic-drive.md.
 //
 // The generator does not stop the car from turning at zero speed. The
 // segments decide how the car moves.
@@ -240,6 +242,7 @@ inline std::optional<Scenario> GenerateScenario(
   Scenario scenario;
   scenario.imu.reserve(step_count + 1);
   scenario.reference.reserve(step_count + 1);
+  scenario.gnss.reserve(fix_count);  // Counts the fixes in the outage too.
 
   // After the last segment its inputs hold. Without segments the car keeps
   // its start speed and heading.
@@ -297,6 +300,10 @@ inline std::optional<Scenario> GenerateScenario(
         .east = truth.east + east_error,
         .north = truth.north + north_error,
     });
+  }
+  // A gnss_period below the resolution of the fix times repeats a time.
+  if (!IsWellFormed(scenario)) {
+    return std::nullopt;
   }
   return scenario;
 }

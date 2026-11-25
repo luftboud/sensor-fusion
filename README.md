@@ -39,6 +39,8 @@ sensor-fusion/
   docs/ua/project.md   Ukrainian specification
   docs/ekf-scenario.md
   docs/ua/ekf-scenario.md   2D scenario types, in Ukrainian
+  docs/synthetic-drive.md
+  docs/ua/synthetic-drive.md   synthetic drive, in Ukrainian
   data/README.md
 ```
 

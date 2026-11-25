@@ -2,7 +2,7 @@
 
 The 2D filter, the synthetic drive, and the comparison all share one set of records. The records are `State2d` and `EkfEstimate` in `include/sensor_fusion/ekf/state.h`, and `PlanarImu`, `GnssFix`, `ReferenceSample`, and `Scenario` in `include/sensor_fusion/ekf/scenario.h`.
 
-This note is the contract those headers spell out. The predict/update step is a later task. The synthetic drive in `include/sensor_fusion/sim/synthetic_drive.h` fills a `Scenario` and cuts the 15-second outage from the GNSS series.
+This note is the contract those headers spell out. The predict/update step is a later task. The [synthetic drive](synthetic-drive.md) in `include/sensor_fusion/sim/synthetic_drive.h` fills a `Scenario` and cuts the 15-second outage from the GNSS series.
 
 ## State
 
