@@ -2,7 +2,7 @@
 
 Двовимірний фільтр, синтетична поїздка і порівняння користуються одним набором записів. Це `State2d` і `EkfEstimate` у `include/sensor_fusion/ekf/state.h`, а також `PlanarImu`, `GnssFix`, `ReferenceSample` і `Scenario` у `include/sensor_fusion/ekf/scenario.h`.
 
-Тут зафіксовано контракт, який ті заголовки проговорюють у коментарях. Крок predict/update — окрема задача. Синтетична поїздка в `include/sensor_fusion/sim/synthetic_drive.h` заповнює `Scenario` і вирізає 15 секунд втрати з ряду GNSS.
+Тут зафіксовано контракт, який ті заголовки проговорюють у коментарях. Крок predict/update — окрема задача. [Синтетична поїздка](synthetic-drive.md) в `include/sensor_fusion/sim/synthetic_drive.h` заповнює `Scenario` і вирізає 15 секунд втрати з ряду GNSS.
 
 ## Стан
 
