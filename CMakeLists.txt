@@ -40,3 +40,7 @@ add_test(NAME scenario_tests COMMAND scenario_tests)
 add_executable(synthetic_drive_tests tests/synthetic_drive_tests.cpp)
 target_link_libraries(synthetic_drive_tests PRIVATE sensor_fusion)
 add_test(NAME synthetic_drive_tests COMMAND synthetic_drive_tests)
+
+add_executable(ekf_tests tests/ekf_tests.cpp)
+target_link_libraries(ekf_tests PRIVATE sensor_fusion)
+add_test(NAME ekf_tests COMMAND ekf_tests)
