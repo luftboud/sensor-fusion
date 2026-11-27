@@ -22,7 +22,7 @@ Sensor Fusion Core is a header-only C++20 library that fuses GNSS and IMU with a
 
 | Path | Role |
 | --- | --- |
-| `include/sensor_fusion/io/` | NMEA parser, IMU reader, KITTI loader, GNSS CSV reader |
+| `include/sensor_fusion/io/` | NMEA parser, IMU reader, KITTI loader and scenario, GNSS CSV reader |
 | `include/matrix` | Compile-time-sized matrix library |
 | `include/sensor_fusion/ekf/` | 2D scenario types (`state.h`, `scenario.h`). Predict/update, the dynamic-matrix baseline, and an optional 3D model are later tasks |
 | `include/sensor_fusion/sim/` | Synthetic 2D drive (`synthetic_drive.h`) that fills a `Scenario` |
