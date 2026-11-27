@@ -3,12 +3,10 @@
         - State x = [east, north, yaw, v];
         - inputs ax, wz;
         - measurement = GNSS (east, north).
-        - Model and parameters are the "trait" that the C++ EKF must mirror
+        - Model and parameters mirror include/sensor_fusion/ekf/ekf.h
 
     Usage:
-        // REF ekf results
         python foreign_impl/ref_ekf.py data/kitti/2011_09_26/2011_09_26_drive_0009_sync/oxts
-        // In comparison to a custom implementation
         python foreign_impl/ref_ekf.py OXTS_DIR [--own own_full.csv --own-outage own_outage.csv]
 """
 
@@ -24,24 +22,25 @@ from filterpy.kalman import ExtendedKalmanFilter
 EARTH_RADIUS_M = 6378137.0
 
 PARAMS = dict(
-    sigma_accel=0.5,                # m/s^2, process noise on ax
-    sigma_yaw_rate=0.02,            # rad/s, process noise on wz
-    sigma_gnss=3.0,                 # m, noise of synthetic GNSS AND filter R
-    init_std_position=3.0,          # m
-    init_std_yaw=0.05,              # rad
-    init_std_speed=0.5,             # m/s
-    gnss_period=1.0,                # s between fixes
-    gnss_offset=0.5,                # s, first fix time (so fixes fall between IMU steps)
-    outage_start=15.0,              # s
-    outage_length=15.0,             # s
+
+    init_std_position=2.0,                  # m, per axis
+    init_std_yaw=0.2,                       # rad
+    init_std_speed=1.0,                     # m/s
+    accel_noise_density=0.3,                # (m/s^2)/sqrt(Hz); increment variance = density^2 * dt
+    gyro_noise_density=0.03,                # (rad/s)/sqrt(Hz)
+    gnss_position_std=2.0,                  # m, filter measurement noise R (per axis)
+
+    gnss_noise=2.0,                         # m, noise added to the synthetic fixes
+    gnss_period=1.0,                        # s between fixes
+    gnss_offset=0.5,                        # s, first fix time
+    outage_start=15.0,                      # s
+    outage_length=15.0,                     # s
     seed=42,
 )
 
 
 def load_scenario(oxts_dir):
-    """
-    Read KITTI OXTS into times, reference states and IMU inputs
-    """
+    """Read KITTI OXTS into times, reference states and IMU inputs."""
     oxts_dir = pathlib.Path(oxts_dir)
     timestamps = [
         np.datetime64(line.strip().replace(" ", "T"))
@@ -75,19 +74,70 @@ def make_gnss(scenario, params, rng):
     )
     true_east = np.interp(fix_times, scenario["times"], scenario["reference"][:, 0])
     true_north = np.interp(fix_times, scenario["times"], scenario["reference"][:, 1])
-    noise = rng.normal(0.0, params["sigma_gnss"], (fix_times.size, 2))
+    noise = rng.normal(0.0, params["gnss_noise"], (fix_times.size, 2))
     fix_positions = np.c_[true_east, true_north] + noise
     return fix_times, fix_positions
 
 
 def cut_outage(fix_times, fix_positions, outage_start, outage_length):
-    """Drop the fixes inside the outage window."""
+    """
+    Drop the fixes inside the outage window
+    """
     in_outage = (fix_times >= outage_start) & (fix_times < outage_start + outage_length)
     return fix_times[~in_outage], fix_positions[~in_outage]
 
 
-def run_ekf(scenario, fix_times, fix_positions, params):
+def predict(ekf, accel_x, yaw_rate, dt, params):
+    """
+    Midpoint step and covariance propagation, as in PlanarEkf::Predict
+    """
+    east, north, yaw, speed = ekf.x
+    delta_speed = accel_x * dt
+    delta_yaw = yaw_rate * dt
+    yaw_mid = yaw + 0.5 * delta_yaw
+    distance = (speed + 0.5 * delta_speed) * dt
+    cos_yaw, sin_yaw = np.cos(yaw_mid), np.sin(yaw_mid)
 
+    transition = np.eye(4)
+    transition[0, 2] = -distance * sin_yaw
+    transition[1, 2] = distance * cos_yaw
+    transition[0, 3] = dt * cos_yaw
+    transition[1, 3] = dt * sin_yaw
+
+    noise_jacobian = np.zeros((4, 2))
+    noise_jacobian[0, 0] = 0.5 * transition[0, 3]
+    noise_jacobian[1, 0] = 0.5 * transition[1, 3]
+    noise_jacobian[3, 0] = 1.0
+    noise_jacobian[0, 1] = 0.5 * transition[0, 2]
+    noise_jacobian[1, 1] = 0.5 * transition[1, 2]
+    noise_jacobian[2, 1] = 1.0
+    increment_noise = np.diag([
+        params["accel_noise_density"] ** 2 * dt,
+        params["gyro_noise_density"] ** 2 * dt,
+    ])
+
+    ekf.F = transition
+    ekf.Q = noise_jacobian @ increment_noise @ noise_jacobian.T
+    ekf.x = np.array([
+        east + distance * cos_yaw,
+        north + distance * sin_yaw,
+        yaw + delta_yaw,
+        speed + delta_speed,
+    ])
+    ekf.predict_x = lambda u=0: None
+    ekf.predict()
+
+
+def run_ekf(scenario, fix_times, fix_positions, params):
+    """
+    Mirrors RunEkf in ekf.h.
+
+    Each fix is applied at its own timestamp: predict to the fix time with
+    the IMU sample that starts the step, update, then predict the rest of
+    the step.
+    
+    Row 0 is the initial state at times[0].
+    """
     times = scenario["times"]
     ekf = ExtendedKalmanFilter(dim_x=4, dim_z=2)
     ekf.x = scenario["reference"][0].copy()
@@ -97,59 +147,51 @@ def run_ekf(scenario, fix_times, fix_positions, params):
         params["init_std_yaw"] ** 2,
         params["init_std_speed"] ** 2,
     ])
-    gnss_noise_cov = np.eye(2) * params["sigma_gnss"] ** 2
+    gnss_noise_cov = np.eye(2) * params["gnss_position_std"] ** 2
     measurement_jacobian = np.array([[1.0, 0, 0, 0], [0, 1.0, 0, 0]])
+
+    def apply_fix(fix_index):
+        ekf.update(
+            fix_positions[fix_index],
+            lambda x: measurement_jacobian,
+            lambda x: x[:2],
+            R=gnss_noise_cov,
+        )
 
     states = np.zeros((len(times), 4))
     position_stds = np.zeros((len(times), 2))
     updated = np.zeros(len(times), dtype=bool)
+
+    time = times[0]
+    next_fix = 0
+    while next_fix < len(fix_times) and fix_times[next_fix] < time:
+        next_fix += 1
+    if next_fix < len(fix_times) and fix_times[next_fix] == time:
+        apply_fix(next_fix)
+        next_fix += 1
+        updated[0] = True
     states[0] = ekf.x
     position_stds[0] = np.sqrt(np.diag(ekf.P)[:2])
 
     for step in range(1, len(times)):
-        dt = times[step] - times[step - 1]
-        east, north, yaw, speed = ekf.x
-        cos_yaw, sin_yaw = np.cos(yaw), np.sin(yaw)
-
-        predicted_state = np.array([
-            east + speed * cos_yaw * dt,
-            north + speed * sin_yaw * dt,
-            yaw + scenario["yaw_rate"][step - 1] * dt,
-            speed + scenario["accel_x"][step - 1] * dt,
-        ])
-        ekf.F = np.array([
-            [1, 0, -speed * sin_yaw * dt, cos_yaw * dt],
-            [0, 1,  speed * cos_yaw * dt, sin_yaw * dt],
-            [0, 0, 1, 0],
-            [0, 0, 0, 1],
-        ])
-        ekf.Q = np.diag([
-            0, 0,
-            (params["sigma_yaw_rate"] * dt) ** 2,
-            (params["sigma_accel"] * dt) ** 2,
-        ])
-        ekf.x = predicted_state
-        ekf.predict_x = lambda u=0: None
-        ekf.predict()
-
-        fixes_this_step = np.where(
-            (fix_times > times[step - 1]) & (fix_times <= times[step])
-        )[0]
-        for fix_index in fixes_this_step:
-            ekf.update(
-                fix_positions[fix_index],
-                lambda x: measurement_jacobian,
-                lambda x: x[:2],
-                R=gnss_noise_cov,
-            )
+        step_end = times[step]
+        imu_ax = scenario["accel_x"][step - 1]
+        imu_wz = scenario["yaw_rate"][step - 1]
+        while next_fix < len(fix_times) and fix_times[next_fix] <= step_end:
+            predict(ekf, imu_ax, imu_wz, fix_times[next_fix] - time, params)
+            apply_fix(next_fix)
+            time = fix_times[next_fix]
+            next_fix += 1
             updated[step] = True
-
+        if time < step_end:
+            predict(ekf, imu_ax, imu_wz, step_end - time, params)
+            time = step_end
         states[step] = ekf.x
         position_stds[step] = np.sqrt(np.diag(ekf.P)[:2])
     return states, position_stds, updated
 
-def position_error(estimate, reference):
 
+def position_error(estimate, reference):
     return np.hypot(estimate[:, 0] - reference[:, 0], estimate[:, 1] - reference[:, 1])
 
 
