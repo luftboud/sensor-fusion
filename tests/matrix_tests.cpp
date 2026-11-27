@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 namespace {
@@ -596,8 +597,94 @@ void test_float_arithmetic() {
 
 }
 
+void test_block_helpers() {
+    // Givens reduction on a static and on a dynamic row: [3 4] -> [5 0].
+    Matrix<double, 1, 2> row;
+    row(0, 0) = 3.0;
+    row(0, 1) = 4.0;
+    givens_reduce_row(row, 0, 0);
+    CHECK(close(row(0, 0), 5.0));
+    CHECK(close(row(0, 1), 0.0));
+
+    Matrix<double, 0, 0> dynamic_row(1, 2);
+    dynamic_row(0, 0) = 3.0;
+    dynamic_row(0, 1) = 4.0;
+    givens_reduce_row(dynamic_row, 0, 0);
+    CHECK(close(dynamic_row(0, 0), 5.0));
+    CHECK(close(dynamic_row(0, 1), 0.0));
+
+    // A non-finite entry is reported as overflow, not as a NaN result.
+    Matrix<double, 1, 2> infinite_row;
+    infinite_row(0, 0) = 1.0;
+    infinite_row(0, 1) = std::numeric_limits<double>::infinity();
+    bool overflowed = false;
+    try {
+        givens_reduce_row(infinite_row, 0, 0);
+    } catch (const std::overflow_error&) {
+        overflowed = true;
+    }
+    CHECK(overflowed);
+
+    // Horizontal: [1 | 2 3] -> [1 2 3].
+    Matrix<double, 1, 1> left;
+    left(0, 0) = 1.0;
+    Matrix<double, 1, 2> right;
+    right(0, 0) = 2.0;
+    right(0, 1) = 3.0;
+    const auto joined = hconcat(left, right);
+    CHECK(joined.rows() == 1 && joined.cols() == 3);
+    CHECK(close(joined(0, 0), 1.0));
+    CHECK(close(joined(0, 2), 3.0));
+
+    // Horizontal, dynamic.
+    Matrix<double, 0, 0> dynamic_left(2, 1);
+    dynamic_left(0, 0) = 1.0;
+    dynamic_left(1, 0) = 2.0;
+    Matrix<double, 0, 0> dynamic_right(2, 2);
+    dynamic_right(0, 0) = 3.0;
+    dynamic_right(0, 1) = 4.0;
+    dynamic_right(1, 0) = 5.0;
+    dynamic_right(1, 1) = 6.0;
+    const auto dynamic_joined = hconcat(dynamic_left, dynamic_right);
+    CHECK(dynamic_joined.rows() == 2 && dynamic_joined.cols() == 3);
+    CHECK(close(dynamic_joined(1, 0), 2.0));
+    CHECK(close(dynamic_joined(1, 2), 6.0));
+
+    // Vertical: [1 2; 3 0; 0 4] from a 1x2 over a 2x2.
+    Matrix<double, 1, 2> top;
+    top(0, 0) = 1.0;
+    top(0, 1) = 2.0;
+    Matrix<double, 2, 2> bottom;
+    bottom(0, 0) = 3.0;
+    bottom(1, 1) = 4.0;
+    const auto stacked = vconcat(top, bottom);
+    CHECK(stacked.rows() == 3 && stacked.cols() == 2);
+    CHECK(close(stacked(0, 1), 2.0));
+    CHECK(close(stacked(1, 0), 3.0));
+    CHECK(close(stacked(2, 1), 4.0));
+
+    // Vertical, dynamic.
+    Matrix<double, 0, 0> dynamic_top(1, 2);
+    dynamic_top(0, 0) = 7.0;
+    Matrix<double, 0, 0> dynamic_bottom(2, 2);
+    dynamic_bottom(1, 1) = 8.0;
+    const auto dynamic_stacked = vconcat(dynamic_top, dynamic_bottom);
+    CHECK(dynamic_stacked.rows() == 3 && dynamic_stacked.cols() == 2);
+    CHECK(close(dynamic_stacked(0, 0), 7.0));
+    CHECK(close(dynamic_stacked(2, 1), 8.0));
+
+    // Mismatched operands are rejected.
+    expect_invalid_argument([] {
+        hconcat(Matrix<double, 0, 0>(2, 1), Matrix<double, 0, 0>(3, 1));
+    });
+    expect_invalid_argument([] {
+        vconcat(Matrix<double, 0, 0>(1, 2), Matrix<double, 0, 0>(1, 3));
+    });
+}
+
 int main() {
     test_elements();
+    test_block_helpers();
     test_static_access();
     test_static_arithmetic();
     test_static_det_and_inverse();
