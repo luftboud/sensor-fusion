@@ -56,3 +56,12 @@ add_test(NAME kitti_scenario_tests COMMAND kitti_scenario_tests)
 add_executable(metrics_tests tests/metrics_tests.cpp)
 target_link_libraries(metrics_tests PRIVATE sensor_fusion)
 add_test(NAME metrics_tests COMMAND metrics_tests)
+
+# Reports
+add_executable(kitti_run apps/report/kitti_run.cpp)
+target_link_libraries(kitti_run PRIVATE sensor_fusion)
+add_test(NAME kitti_run_tests
+    COMMAND ${CMAKE_COMMAND}
+        -DKITTI_RUN=$<TARGET_FILE:kitti_run>
+        -DWORK=${CMAKE_CURRENT_BINARY_DIR}/kitti_run_tests
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/kitti_run_tests.cmake)

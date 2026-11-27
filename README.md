@@ -33,6 +33,7 @@ sensor-fusion/
     matrix/      compile-time-sized matrices
     ekf/         2D scenario types, the EKF, and accuracy metrics (3D if time allows)
     sim/         synthetic 2D drive that fills a scenario
+  apps/report/   kitti_run: EKF on a KITTI drive for the filterpy comparison
   apps/cli/      future CLI entry point (apps/cli/main.cpp)
   tests/
   docs/project.md

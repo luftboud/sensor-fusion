@@ -1,0 +1,486 @@
+// Runs the EKF on a KITTI oxts drive with the GNSS fixes that
+// foreign_impl/ref_ekf.py wrote, once with every fix and once with the
+// outage, and writes both trajectories as CSV for the comparison with
+// filterpy, with the accuracy metrics as JSON:
+//
+//   kitti_run --oxts DIR --gnss FILE --gnss-outage FILE [--out DIR]
+//
+// See docs/kitti-scenario.md#running-the-comparison.
+
+#include <sys/stat.h>
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cerrno>
+#include <charconv>
+#include <cstddef>
+#include <cstdio>
+#include <exception>
+#include <fstream>
+#include <iostream>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
+#include <vector>
+
+#include "sensor_fusion/ekf/ekf.h"
+#include "sensor_fusion/ekf/metrics.h"
+#include "sensor_fusion/ekf/scenario.h"
+#include "sensor_fusion/ekf/state.h"
+#include "sensor_fusion/io/gnss/gnss_csv.h"
+#include "sensor_fusion/io/imu/imu.h"
+#include "sensor_fusion/io/kitti/kitti_scenario.h"
+#include "sensor_fusion/io/text.h"
+
+namespace sensor_fusion {
+namespace {
+
+constexpr int kExitOk = 0;
+constexpr int kExitDataError = 1;
+constexpr int kExitUsage = 2;
+
+constexpr std::string_view kProgram = "kitti_run";
+constexpr std::string_view kEstimatesHeader =
+    "t,east,north,yaw,v,std_east,std_north,updated";
+constexpr std::string_view kFullName = "kitti_estimates.csv";
+constexpr std::string_view kOutageName = "kitti_estimates_outage.csv";
+constexpr std::string_view kMetricsName = "kitti_metrics.json";
+
+constexpr std::string_view kUsage =
+    "usage: kitti_run --oxts DIR --gnss FILE --gnss-outage FILE [--out DIR]\n"
+    "                 [--initial-position-std M] [--initial-yaw-std RAD]\n"
+    "                 [--initial-speed-std M/S] [--accel-noise-density X]\n"
+    "                 [--gyro-noise-density X] [--gnss-position-std M]\n"
+    "                 [--outage-start S] [--outage-length S]\n"
+    "\n"
+    "  --oxts DIR         KITTI oxts directory (timestamps.txt and data/)\n"
+    "  --gnss FILE        GNSS fixes for the whole drive, t,east,north\n"
+    "  --gnss-outage FILE the same fixes with the outage cut out\n"
+    "  --out DIR          output directory, default build/report/kitti\n"
+    "  --outage-start S   start of the outage window, default 15 s\n"
+    "  --outage-length S  length of the outage window, default 15 s\n"
+    "\n"
+    "The filter flags default to EkfConfig. The initial state is the first\n"
+    "reference sample: east 0, north 0, the OXTS yaw and the forward speed.\n"
+    "The outage window must match the one ref_ekf.py cut from the fixes.\n"
+    "Writes kitti_estimates.csv, kitti_estimates_outage.csv and\n"
+    "kitti_metrics.json.\n"
+    "Exit status: 0 done, 1 bad input data or write error, 2 bad arguments.\n";
+
+struct Options {
+  std::string oxts_dir;
+  std::string gnss_path;
+  std::string gnss_outage_path;
+  std::string out_dir = "build/report/kitti";
+  EkfConfig config;
+  // PARAMS["outage_start"] and PARAMS["outage_length"] in ref_ekf.py.
+  double outage_start = 15.0;
+  double outage_length = 15.0;
+  bool help = false;
+};
+
+struct NumberFlag {
+  std::string_view name;
+  double EkfConfig::*field;
+};
+
+constexpr std::array<NumberFlag, 6> kNumberFlags = {{
+    {.name = "--initial-position-std",
+     .field = &EkfConfig::initial_position_std},
+    {.name = "--initial-yaw-std", .field = &EkfConfig::initial_yaw_std},
+    {.name = "--initial-speed-std", .field = &EkfConfig::initial_speed_std},
+    {.name = "--accel-noise-density",
+     .field = &EkfConfig::accel_noise_density},
+    {.name = "--gyro-noise-density", .field = &EkfConfig::gyro_noise_density},
+    {.name = "--gnss-position-std", .field = &EkfConfig::gnss_position_std},
+}};
+
+// Prints "kitti_run: message" to stderr.
+void Report(std::string_view message) {
+  std::cerr << kProgram << ": " << message << '\n';
+}
+
+// Sets one option from a flag and its value. Returns false, after printing
+// why, when the flag is unknown or the value does not fit it.
+bool SetOption(std::string_view flag, std::string_view value,
+               Options& options) {
+  std::string* path = nullptr;
+  if (flag == "--oxts") {
+    path = &options.oxts_dir;
+  } else if (flag == "--gnss") {
+    path = &options.gnss_path;
+  } else if (flag == "--gnss-outage") {
+    path = &options.gnss_outage_path;
+  } else if (flag == "--out") {
+    path = &options.out_dir;
+  }
+  if (path != nullptr) {
+    if (value.empty()) {
+      Report(std::string(flag) + " needs a non-empty path");
+      return false;
+    }
+    *path = std::string(value);
+    return true;
+  }
+
+  if (flag == "--outage-start" || flag == "--outage-length") {
+    const std::optional<double> parsed = internal::ParseDouble(value);
+    const bool is_length = flag == "--outage-length";
+    if (!parsed.has_value() || (is_length && *parsed < 0.0)) {
+      Report(std::string(flag) + " needs a finite" +
+             (is_length ? " nonnegative" : "") + " number of seconds, got '" +
+             std::string(value) + "'");
+      return false;
+    }
+    (is_length ? options.outage_length : options.outage_start) = *parsed;
+    return true;
+  }
+
+  for (const NumberFlag& number : kNumberFlags) {
+    if (flag == number.name) {
+      const std::optional<double> parsed = internal::ParseDouble(value);
+      if (!parsed.has_value()) {
+        Report(std::string(flag) + " needs a finite number, got '" +
+               std::string(value) + "'");
+        return false;
+      }
+      options.config.*number.field = *parsed;
+      return true;
+    }
+  }
+
+  Report("unknown flag '" + std::string(flag) + "'");
+  return false;
+}
+
+// Reads "--flag value" pairs. Returns std::nullopt, after printing why, on
+// a bad command line.
+std::optional<Options> ParseArguments(std::span<char* const> args) {
+  Options options;
+  for (std::size_t i = 1; i < args.size(); ++i) {
+    const std::string_view flag = args[i];
+    if (flag == "--help" || flag == "-h") {
+      options.help = true;
+      return options;
+    }
+    if (i + 1 == args.size()) {
+      Report(std::string(flag) + " needs a value");
+      return std::nullopt;
+    }
+    ++i;
+    if (!SetOption(flag, args[i], options)) {
+      return std::nullopt;
+    }
+  }
+
+  if (options.oxts_dir.empty() || options.gnss_path.empty() ||
+      options.gnss_outage_path.empty()) {
+    Report("--oxts, --gnss and --gnss-outage are required");
+    return std::nullopt;
+  }
+  return options;
+}
+
+// The shortest text that reads back as the same double, as std::to_chars
+// gives it. The same value always gives the same text.
+void AppendNumber(double value, std::string& line) {
+  std::array<char, 32> buffer = {};
+  const std::to_chars_result result =
+      std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+  // 32 characters hold every double; ec is set only if they did not.
+  if (result.ec == std::errc()) {
+    line.append(buffer.data(), result.ptr);
+  }
+}
+
+std::string EstimatesCsv(const std::vector<EkfEstimate>& estimates) {
+  std::string text(kEstimatesHeader);
+  text += '\n';
+  for (const EkfEstimate& estimate : estimates) {
+    for (const double value :
+         {estimate.t, estimate.state.east, estimate.state.north,
+          estimate.state.yaw, estimate.state.v, estimate.std_east,
+          estimate.std_north}) {
+      AppendNumber(value, text);
+      text += ',';
+    }
+    text += estimate.updated ? "1\n" : "0\n";
+  }
+  return text;
+}
+
+// Creates path and its missing parents, like mkdir -p. Returns false when a
+// part of the path cannot be made a directory.
+bool MakeDirectories(const std::string& path) {
+  for (std::size_t end = path.find('/', 1); end != std::string::npos;
+       end = path.find('/', end + 1)) {
+    const std::string parent = path.substr(0, end);
+    if (mkdir(parent.c_str(), 0777) != 0 && errno != EEXIST) {
+      return false;
+    }
+  }
+  if (mkdir(path.c_str(), 0777) != 0 && errno != EEXIST) {
+    return false;
+  }
+  struct stat info = {};
+  return stat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
+}
+
+// Writes text to path + ".tmp". Returns false, and removes the partial file,
+// if the write fails.
+bool WriteTemporary(const std::string& path, std::string_view text) {
+  const std::string temporary = path + ".tmp";
+  {
+    std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+    file << text;
+    file.close();
+    if (file) {
+      return true;
+    }
+  }
+  std::remove(temporary.c_str());
+  return false;
+}
+
+// Appends a JSON number, or null for a missing or non-finite value.
+void AppendJsonNumber(std::optional<double> value, std::string& text) {
+  if (value.has_value() && std::isfinite(*value)) {
+    AppendNumber(*value, text);
+  } else {
+    text += "null";
+  }
+}
+
+struct RunCounts {
+  std::size_t steps = 0;
+  std::size_t fixes = 0;
+  std::size_t outage_fixes = 0;
+};
+
+std::string MetricsJson(const FusionMetrics& metrics, const RunCounts& counts,
+                        const TimeWindow& window) {
+  std::string text = "{\n";
+  const auto field = [&text](std::string_view name) {
+    text += "  \"";
+    text += name;
+    text += "\": ";
+  };
+  field("steps");
+  text += std::to_string(counts.steps) + ",\n";
+  field("gnss_fixes");
+  text += std::to_string(counts.fixes) + ",\n";
+  field("gnss_outage_fixes");
+  text += std::to_string(counts.outage_fixes) + ",\n";
+  field("outage_window");
+  text += "{\"start\": ";
+  AppendJsonNumber(window.start, text);
+  text += ", \"end\": ";
+  AppendJsonNumber(window.end, text);
+  text += "},\n";
+  const std::array<std::pair<std::string_view, std::optional<double>>, 6>
+      values = {{
+          {"raw_gnss_rmse", metrics.raw_gnss_rmse},
+          {"filter_rmse", metrics.filter_rmse},
+          {"filter_rmse_reduction", metrics.filter_rmse_reduction},
+          {"outage_rmse", metrics.outage_rmse},
+          {"outage_window_rmse", metrics.outage_window_rmse},
+          {"imu_only_window_rmse", metrics.imu_only_window_rmse},
+      }};
+  for (const auto& [name, value] : values) {
+    field(name);
+    AppendJsonNumber(value, text);
+    text += ",\n";
+  }
+  field("reacquisition");
+  if (metrics.reacquisition.has_value()) {
+    const Reacquisition& reacquisition = *metrics.reacquisition;
+    text += "{\"t\": ";
+    AppendJsonNumber(reacquisition.t, text);
+    text += ", \"filter_error\": ";
+    AppendJsonNumber(reacquisition.filter_error, text);
+    text += ", \"imu_only_error\": ";
+    AppendJsonNumber(reacquisition.imu_only_error, text);
+    text += ", \"ratio\": ";
+    AppendJsonNumber(reacquisition.ratio, text);
+    text += "}\n";
+  } else {
+    text += "null\n";
+  }
+  text += "}\n";
+  return text;
+}
+
+struct OutputFile {
+  std::string path;
+  std::string text;
+};
+
+// Writes each file next to its final name first and renames them only when
+// all are complete, so a failed run leaves the old outputs as they were.
+bool WriteOutputs(const std::string& out_dir,
+                  const std::vector<OutputFile>& files) {
+  if (!MakeDirectories(out_dir)) {
+    Report("cannot create the output directory " + out_dir);
+    return false;
+  }
+  const auto remove_temporaries = [&files] {
+    for (const OutputFile& file : files) {
+      std::remove((file.path + ".tmp").c_str());
+    }
+  };
+  for (const OutputFile& file : files) {
+    if (!WriteTemporary(file.path, file.text)) {
+      remove_temporaries();
+      Report("cannot write " + file.path + ".tmp");
+      return false;
+    }
+  }
+  const bool renamed =
+      std::ranges::all_of(files, [](const OutputFile& file) {
+        return std::rename((file.path + ".tmp").c_str(), file.path.c_str()) ==
+               0;
+      });
+  if (!renamed) {
+    remove_temporaries();
+    Report("cannot replace the outputs in " + out_dir);
+  }
+  return renamed;
+}
+
+std::optional<std::vector<GnssFix>> ReadFixes(const std::string& path) {
+  const GnssCsvResult result = ReadGnssCsv(path);
+  if (!result.ok()) {
+    std::string message = path + ": " + std::string(ToString(result.error));
+    if (result.line != 0) {
+      message += " (line " + std::to_string(result.line) + ")";
+    }
+    Report(message);
+    return std::nullopt;
+  }
+  return result.fixes;
+}
+
+// RunEkf() reports an invalid configuration or a numeric failure by
+// throwing. This catches it and prints why.
+std::optional<std::vector<EkfEstimate>> RunFilter(
+    const Scenario& scenario, const std::vector<GnssFix>& fixes,
+    const EkfConfig& config, std::string_view label) {
+  try {
+    return RunEkf(scenario.imu, fixes, config);
+  } catch (const std::exception& error) {
+    Report("EKF failed on " + std::string(label) + ": " + error.what());
+    return std::nullopt;
+  }
+}
+
+int Run(const Options& options) {
+  // RunEkf() checks the configuration before the data, so a run on no data
+  // tells a bad flag value apart from bad input files.
+  try {
+    static_cast<void>(RunEkf({}, {}, options.config));
+  } catch (const std::exception& error) {
+    Report(std::string("invalid filter parameters: ") + error.what());
+    return kExitUsage;
+  }
+
+  const KittiReadResult drive = ReadKittiOxts(options.oxts_dir);
+  if (!drive.ok()) {
+    Report(options.oxts_dir + ": " + std::string(ToString(drive.error)) +
+           " (sample " + std::to_string(drive.index) + ")");
+    return kExitDataError;
+  }
+  const Scenario scenario = KittiScenario(drive);
+
+  const std::optional<std::vector<GnssFix>> fixes =
+      ReadFixes(options.gnss_path);
+  const std::optional<std::vector<GnssFix>> outage_fixes =
+      ReadFixes(options.gnss_outage_path);
+  if (!fixes.has_value() || !outage_fixes.has_value()) {
+    return kExitDataError;
+  }
+
+  // Both filters start where ref_ekf.py starts: at the first reference
+  // sample, which is (0, 0, yaw0, vf0).
+  EkfConfig config = options.config;
+  config.initial_state = scenario.reference.front().state;
+
+  const std::optional<std::vector<EkfEstimate>> full =
+      RunFilter(scenario, *fixes, config, options.gnss_path);
+  const std::optional<std::vector<EkfEstimate>> outage =
+      RunFilter(scenario, *outage_fixes, config, options.gnss_outage_path);
+  const std::optional<std::vector<EkfEstimate>> imu_only =
+      RunFilter(scenario, {}, config, "the IMU-only run");
+  if (!full.has_value() || !outage.has_value() || !imu_only.has_value()) {
+    return kExitDataError;
+  }
+
+  const TimeWindow window = {
+      .start = options.outage_start,
+      .end = options.outage_start + options.outage_length,
+  };
+  const std::optional<FusionMetrics> metrics = ComputeFusionMetrics({
+      .reference = scenario.reference,
+      .gnss = *fixes,
+      .full = *full,
+      .outage = *outage,
+      .imu_only = *imu_only,
+      .outage_window = window,
+  });
+  if (!metrics.has_value()) {
+    Report("the estimates do not match the reference trajectory");
+    return kExitDataError;
+  }
+
+  const std::string prefix = options.out_dir + "/";
+  const RunCounts counts = {.steps = full->size(),
+                            .fixes = fixes->size(),
+                            .outage_fixes = outage_fixes->size()};
+  if (!WriteOutputs(
+          options.out_dir,
+          {{.path = prefix + std::string(kFullName),
+            .text = EstimatesCsv(*full)},
+           {.path = prefix + std::string(kOutageName),
+            .text = EstimatesCsv(*outage)},
+           {.path = prefix + std::string(kMetricsName),
+            .text = MetricsJson(*metrics, counts, window)}})) {
+    return kExitDataError;
+  }
+  Report(std::to_string(full->size()) + " steps, " +
+         std::to_string(fixes->size()) + " and " +
+         std::to_string(outage_fixes->size()) + " fixes, written to " +
+         options.out_dir);
+  return kExitOk;
+}
+
+int Main(std::span<char* const> args) {
+  const std::optional<Options> options = ParseArguments(args);
+  if (!options.has_value()) {
+    std::cerr << kUsage;
+    return kExitUsage;
+  }
+  if (options->help) {
+    std::cout << kUsage;
+    return kExitOk;
+  }
+  return Run(*options);
+}
+
+}  // namespace
+}  // namespace sensor_fusion
+
+int main(int argc, char** argv) {
+  // Main() reports its own failures. This catches what still escapes it,
+  // such as std::bad_alloc, so the program ends with a data error instead
+  // of std::terminate().
+  try {
+    return sensor_fusion::Main(
+        std::span<char* const>(argv, static_cast<std::size_t>(argc)));
+  } catch (...) {
+    std::fputs("kitti_run: internal error\n", stderr);
+    return 1;
+  }
+}

@@ -1,6 +1,6 @@
 # Metrics
 
-`include/sensor_fusion/ekf/metrics.h` measures a filter run against the reference trajectory. Each metric is a small function, so a new metric is one more function and one more field in `FusionMetrics`. `ComputeFusionMetrics()` computes the set that `foreign_impl/ref_ekf.py` prints, in the same way, so the C++ and Python numbers can be compared.
+`include/sensor_fusion/ekf/metrics.h` measures a filter run against the reference trajectory. Each metric is a small function, so a new metric is one more function and one more field in `FusionMetrics`. `ComputeFusionMetrics()` computes the set that `foreign_impl/ref_ekf.py` prints, in the same way, so the C++ and Python numbers can be compared. `kitti_run` writes them to `kitti_metrics.json`; see [the KITTI scenario](kitti-scenario.md#running-the-comparison).
 
 ## Inputs
 
@@ -48,4 +48,4 @@ The arm64 build of numpy evaluates that last expression with one rounding (a fus
 
 ## Agreement with ref_ekf.py
 
-On drive 0009, with the fixes from the current `ref_ekf.py`, every value of `ComputeFusionMetrics()` matches the Python computation to 1e-10 m or better. The spread comes from the trajectories, not from the metrics. `RunEkf()` built with clang matches filterpy to 6e-14 m. Built with gcc, it matches to 3e-10 m, because clang on arm64 fuses multiply-adds the way numpy does and gcc in ISO mode does not. Both are well within numerical error.
+On drive 0009, with the fixes from the current `ref_ekf.py`, every value in `kitti_metrics.json` matches the Python computation to 1e-10 m or better. The spread comes from the trajectories, not from the metrics. A `kitti_run` built with clang or with gcc in Release matches filterpy to 8e-14 m.
