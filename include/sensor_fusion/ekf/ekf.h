@@ -32,10 +32,60 @@ struct EkfConfig {
 
 namespace internal {
 
-class PlanarEkf {
+// State order: east, north, yaw, speed. The 2D model has four states.
+inline constexpr std::size_t kEast = 0;
+inline constexpr std::size_t kNorth = 1;
+inline constexpr std::size_t kYaw = 2;
+inline constexpr std::size_t kSpeed = 3;
+inline constexpr std::size_t kPlanarStateSize = 4;
+// Noise inputs in the prediction: speed increment and yaw increment.
+inline constexpr std::size_t kPlanarNoiseInputs = 2;
+
+// Matrix storage for the shared filter. Every shape the filter needs comes
+// from a policy, so the same algorithm runs on fixed or runtime sizes.
+// StaticMatrixPolicy is in this header. DynamicMatrixPolicy is in
+// ekf_dynamic.h. Neither policy may mix the two kinds of storage.
+struct StaticMatrixPolicy {
+  using Square = SquareMatrix<double, kPlanarStateSize>;
+  using Tall = Matrix<double, kPlanarStateSize, kPlanarNoiseInputs>;
+
+  // The size arguments are ignored: the sizes above are fixed at compile time.
+  static Square MakeSquare(std::size_t /*size*/) { return {}; }
+  static Tall MakeTall(std::size_t /*size*/) { return {}; }
+  static Matrix<double, 1, 1> MakeScalar() { return {}; }
+  static Matrix<double, 1, kPlanarStateSize> MakeRow(std::size_t /*size*/) { return {}; }
+  static Matrix<double, kPlanarStateSize, 1> MakeColumn(std::size_t /*size*/) {
+    return {};
+  }
+  static Square Identity(std::size_t /*size*/) {
+    return identity<double, kPlanarStateSize>();
+  }
+};
+
+// Euclidean norm of entries [begin, end) of one row, as a balanced tree of
+// hypot calls. For four entries this is hypot(hypot(a, b), hypot(c, d)).
+template <typename M>
+double RowNorm(const M& factor, std::size_t row, std::size_t begin,
+               std::size_t end) {
+  if (end - begin == 1) {
+    return std::abs(factor(row, begin));
+  }
+  const std::size_t middle = begin + ((end - begin) / 2);
+  return std::hypot(RowNorm(factor, row, begin, middle),
+                    RowNorm(factor, row, middle, end));
+}
+
+// The planar extended Kalman filter, written once for any matrix policy.
+// The covariance is kept as a square-root factor L with P = L L^T.
+template <typename Policy>
+class PlanarEkfCore {
  public:
-  explicit PlanarEkf(const EkfConfig& config)
-      : state_(config.initial_state),
+  // state_size is the dimension of the covariance factor. The 2D model has
+  // kPlanarStateSize states; any other value is rejected before allocation.
+  explicit PlanarEkfCore(const EkfConfig& config,
+                         std::size_t state_size = kPlanarStateSize)
+      : covariance_root_(Policy::MakeSquare(RequireStateSize(state_size))),
+        state_(config.initial_state),
         accel_noise_density_(config.accel_noise_density),
         gyro_noise_density_(config.gyro_noise_density),
         gnss_position_std_(config.gnss_position_std) {
@@ -76,8 +126,9 @@ class PlanarEkf {
     }
     const double cos_yaw = std::cos(yaw_mid);
     const double sin_yaw = std::sin(yaw_mid);
+    const std::size_t n = covariance_root_.rows();
 
-    auto transition = identity<double, kStateSize>();
+    auto transition = Policy::Identity(n);
     transition(kEast, kYaw) = -distance * sin_yaw;
     transition(kNorth, kYaw) = distance * cos_yaw;
     transition(kEast, kSpeed) = dt * cos_yaw;
@@ -85,7 +136,7 @@ class PlanarEkf {
 
     // Differentiate the midpoint step with respect to the noisy increments
     // in speed and yaw. Each increment also affects the midpoint position.
-    Matrix<double, kStateSize, 2> noise_jacobian;
+    auto noise_jacobian = Policy::MakeTall(n);
     noise_jacobian(kEast, 0) = 0.5 * transition(kEast, kSpeed);
     noise_jacobian(kNorth, 0) = 0.5 * transition(kNorth, kSpeed);
     noise_jacobian(kSpeed, 0) = 1.0;
@@ -96,21 +147,19 @@ class PlanarEkf {
     const double speed_std = accel_noise_density_ * root_dt;
     const double yaw_std = gyro_noise_density_ * root_dt;
     const auto propagated_root = transition * covariance_root_;
-    Matrix<double, kStateSize, kStateSize + 2> prediction;
-    for (std::size_t row = 0; row < kStateSize; ++row) {
-      for (std::size_t col = 0; col < kStateSize; ++col) {
-        prediction(row, col) = propagated_root(row, col);
-      }
-      prediction(row, kStateSize) = noise_jacobian(row, 0) * speed_std;
-      prediction(row, kStateSize + 1) = noise_jacobian(row, 1) * yaw_std;
+    for (std::size_t row = 0; row < n; ++row) {
+      noise_jacobian(row, 0) *= speed_std;
+      noise_jacobian(row, 1) *= yaw_std;
     }
-    // Rotate columns of [F L | G sqrt(Q)] to keep a square factor of P.
-    for (std::size_t row = 0; row < kStateSize; ++row) {
-      ReduceRow(prediction, row, row);
+    // [F L | G sqrt(Q)]: the noise columns are scaled by their standard
+    // deviations, then rotated to keep a square factor of P.
+    auto prediction = hconcat(propagated_root, noise_jacobian);
+    for (std::size_t row = 0; row < n; ++row) {
+      givens_reduce_row(prediction, row, row);
       for (std::size_t col = 0; col <= row; ++col) {
         covariance_root_(row, col) = prediction(row, col);
       }
-      for (std::size_t col = row + 1; col < kStateSize; ++col) {
+      for (std::size_t col = row + 1; col < n; ++col) {
         covariance_root_(row, col) = 0.0;
       }
     }
@@ -146,43 +195,11 @@ class PlanarEkf {
   }
 
  private:
-  static constexpr std::size_t kEast = 0;
-  static constexpr std::size_t kNorth = 1;
-  static constexpr std::size_t kYaw = 2;
-  static constexpr std::size_t kSpeed = 3;
-  static constexpr std::size_t kStateSize = 4;
-
-  // Apply Givens rotations on the right to zero the entries after pivot_col.
-  // An orthogonal rotation preserves the factor times its transpose.
-  template <std::size_t Rows, std::size_t Cols>
-  static void ReduceRow(Matrix<double, Rows, Cols>& factor, std::size_t row,
-                        std::size_t pivot_col) {
-    for (std::size_t col = pivot_col + 1; col < Cols; ++col) {
-      const double entry = factor(row, col);
-      if (entry == 0.0) {
-        continue;
-      }
-      const double pivot = factor(row, pivot_col);
-      // Scale before computing the rotation so subnormal pivots still yield
-      // normalized coefficients.
-      const double scale = std::max(std::abs(pivot), std::abs(entry));
-      if (!std::isfinite(scale) || !std::isfinite(entry)) {
-        throw std::overflow_error("EKF covariance became non-finite");
-      }
-      const double x = pivot / scale;
-      const double y = entry / scale;
-      const double norm = std::hypot(x, y);
-      const double cosine = x / norm;
-      const double sine = y / norm;
-      factor(row, pivot_col) = scale * norm;
-      factor(row, col) = 0.0;
-      for (std::size_t next = row + 1; next < Rows; ++next) {
-        const double left = factor(next, pivot_col);
-        const double right = factor(next, col);
-        factor(next, pivot_col) = (cosine * left) + (sine * right);
-        factor(next, col) = (cosine * right) - (sine * left);
-      }
+  static std::size_t RequireStateSize(std::size_t state_size) {
+    if (state_size != kPlanarStateSize) {
+      throw std::invalid_argument("EKF state size must be 4 for the 2D model");
     }
+    return state_size;
   }
 
   // axis is kEast or kNorth, a row index, and residual is in metres. Every
@@ -193,25 +210,28 @@ class PlanarEkf {
     if (!std::isfinite(residual)) {
       throw std::overflow_error("EKF GNSS residual overflowed");
     }
+    const std::size_t n = covariance_root_.rows();
     // The first row describes uncertainty in the measured coordinate. After
     // rotation, its first entry is the innovation standard deviation. The
     // lower rows contain the scaled gain and the posterior covariance factor.
-    SquareMatrix<double, kStateSize + 1> correction;
-    correction(0, 0) = gnss_position_std_;
-    for (std::size_t col = 0; col < kStateSize; ++col) {
-      correction(0, col + 1) = covariance_root_(axis, col);
-      for (std::size_t row = 0; row < kStateSize; ++row) {
-        correction(row + 1, col + 1) = covariance_root_(row, col);
-      }
+    // [[sigma_g, L[axis, :]], [0, L]] as two block rows.
+    auto scalar = Policy::MakeScalar();
+    scalar(0, 0) = gnss_position_std_;
+    auto axis_row = Policy::MakeRow(n);
+    for (std::size_t col = 0; col < n; ++col) {
+      axis_row(0, col) = covariance_root_(axis, col);
     }
-    ReduceRow(correction, 0, 0);
+    auto top = hconcat(scalar, axis_row);
+    auto bottom = hconcat(Policy::MakeColumn(n), covariance_root_);
+    auto correction = vconcat(top, bottom);
+    givens_reduce_row(correction, 0, 0);
     const double innovation_std = correction(0, 0);
     if (!std::isfinite(innovation_std)) {
       throw std::overflow_error("EKF GNSS innovation overflowed");
     }
     const std::array components{&state_.east, &state_.north, &state_.yaw,
                                 &state_.v};
-    for (std::size_t row = 0; row < kStateSize; ++row) {
+    for (std::size_t row = 0; row < n; ++row) {
       const double scaled_gain = correction(row + 1, 0);
       const double gain = scaled_gain / innovation_std;
       if (!std::isfinite(gain) || (gain == 0.0 && scaled_gain != 0.0)) {
@@ -222,17 +242,14 @@ class PlanarEkf {
       } else {
         *components[row] = std::fma(gain, residual, *components[row]);
       }
-      for (std::size_t col = 0; col < kStateSize; ++col) {
+      for (std::size_t col = 0; col < n; ++col) {
         covariance_root_(row, col) = correction(row + 1, col + 1);
       }
     }
   }
 
   [[nodiscard]] double StateStd(std::size_t row) const {
-    return std::hypot(std::hypot(covariance_root_(row, 0),
-                                covariance_root_(row, 1)),
-                      std::hypot(covariance_root_(row, 2),
-                                 covariance_root_(row, 3)));
+    return RowNorm(covariance_root_, row, 0, covariance_root_.rows());
   }
 
   void CheckNumerics() const {
@@ -241,36 +258,36 @@ class PlanarEkf {
       throw std::overflow_error("EKF state became non-finite");
     }
     const double max_std = std::sqrt(std::numeric_limits<double>::max());
-    for (std::size_t row = 0; row < kStateSize; ++row) {
+    for (std::size_t row = 0; row < covariance_root_.rows(); ++row) {
       if (!(StateStd(row) <= max_std)) {
         throw std::overflow_error("EKF covariance variance overflowed");
       }
     }
   }
 
+  // P = L L^T. Keeping L avoids cancellation in covariance updates when
+  // a very precise fix observes a direction with an almost singular prior.
+  typename Policy::Square covariance_root_;
   State2d state_;
   double accel_noise_density_;
   double gyro_noise_density_;
   double gnss_position_std_;
-  // P = L L^T. Keeping L avoids cancellation in covariance updates when
-  // a very precise fix observes a direction with an almost singular prior.
-  SquareMatrix<double, kStateSize> covariance_root_;
 };
 
-}  // namespace internal
+// Static-size filter: every matrix has its dimensions in the type, so a step
+// never allocates.
+class PlanarEkf : public PlanarEkfCore<StaticMatrixPolicy> {
+ public:
+  using Base = PlanarEkfCore<StaticMatrixPolicy>;
+  explicit PlanarEkf(const EkfConfig& config) : Base(config) {}
+};
 
-// Returns one estimate per IMU timestamp. The initial state is at imu[0].t.
-// Each fix in the IMU time range is applied at its own timestamp and marks
-// the first estimate at or after that timestamp as updated. Fixes outside
-// the IMU time range are ignored. Empty GNSS gives an IMU-only trajectory.
-// Both streams must contain finite values and have strictly increasing times.
-// Throws std::invalid_argument for invalid inputs or configuration.
-// Throws std::runtime_error (including std::overflow_error) if the state or
-// covariance cannot be computed at working precision.
-inline std::vector<EkfEstimate> RunEkf(std::span<const PlanarImu> imu,
-                                     std::span<const GnssFix> gnss,
-                                     const EkfConfig& config = {}) {
-  internal::PlanarEkf filter(config);
+// Shared driver for RunEkf and RunEkfDynamic. The caller constructs the
+// filter, which validates the configuration. This validates both series,
+// then runs the filter over them.
+template <typename Filter>
+std::vector<EkfEstimate> RunSeries(Filter& filter, std::span<const PlanarImu> imu,
+                                   std::span<const GnssFix> gnss) {
   for (std::size_t i = 0; i < imu.size(); ++i) {
     const PlanarImu& sample = imu[i];
     if (!std::isfinite(sample.t) || !std::isfinite(sample.ax) ||
@@ -319,6 +336,23 @@ inline std::vector<EkfEstimate> RunEkf(std::span<const PlanarImu> imu,
     estimates.push_back(filter.Estimate(time, next_fix != first_fix_on_step));
   }
   return estimates;
+}
+
+}  // namespace internal
+
+// Returns one estimate per IMU timestamp. The initial state is at imu[0].t.
+// Each fix in the IMU time range is applied at its own timestamp and marks
+// the first estimate at or after that timestamp as updated. Fixes outside
+// the IMU time range are ignored. Empty GNSS gives an IMU-only trajectory.
+// Both streams must contain finite values and have strictly increasing times.
+// Throws std::invalid_argument for invalid inputs or configuration.
+// Throws std::runtime_error (including std::overflow_error) if the state or
+// covariance cannot be computed at working precision.
+inline std::vector<EkfEstimate> RunEkf(std::span<const PlanarImu> imu,
+                                     std::span<const GnssFix> gnss,
+                                     const EkfConfig& config = {}) {
+  internal::PlanarEkf filter(config);
+  return internal::RunSeries(filter, imu, gnss);
 }
 
 }  // namespace sensor_fusion
