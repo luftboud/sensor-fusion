@@ -48,3 +48,7 @@ add_test(NAME ekf_tests COMMAND ekf_tests)
 add_executable(gnss_csv_tests tests/gnss_csv_tests.cpp)
 target_link_libraries(gnss_csv_tests PRIVATE sensor_fusion)
 add_test(NAME gnss_csv_tests COMMAND gnss_csv_tests)
+
+add_executable(kitti_scenario_tests tests/kitti_scenario_tests.cpp)
+target_link_libraries(kitti_scenario_tests PRIVATE sensor_fusion)
+add_test(NAME kitti_scenario_tests COMMAND kitti_scenario_tests)

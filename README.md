@@ -41,6 +41,8 @@ sensor-fusion/
   docs/ua/ekf-scenario.md   2D scenario types, in Ukrainian
   docs/synthetic-drive.md
   docs/ua/synthetic-drive.md   synthetic drive, in Ukrainian
+  docs/kitti-scenario.md
+  docs/ua/kitti-scenario.md   KITTI drive as a scenario, in Ukrainian
   data/README.md
 ```
 
