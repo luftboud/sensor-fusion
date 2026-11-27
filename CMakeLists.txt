@@ -44,3 +44,7 @@ add_test(NAME synthetic_drive_tests COMMAND synthetic_drive_tests)
 add_executable(ekf_tests tests/ekf_tests.cpp)
 target_link_libraries(ekf_tests PRIVATE sensor_fusion)
 add_test(NAME ekf_tests COMMAND ekf_tests)
+
+add_executable(gnss_csv_tests tests/gnss_csv_tests.cpp)
+target_link_libraries(gnss_csv_tests PRIVATE sensor_fusion)
+add_test(NAME gnss_csv_tests COMMAND gnss_csv_tests)
