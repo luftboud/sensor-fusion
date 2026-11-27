@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "sensor_fusion/io/nmea/nmea_tokeniser.h"
+#include "sensor_fusion/io/text.h"
 
 
 namespace sensor_fusion {
@@ -111,34 +112,14 @@ struct KittiReadResult {
   // see ParseKittiTimestamp(). Every ImuSample::t is relative to it.
   std::int64_t start_ns = 0;
   std::vector<ImuSample> samples;  // Empty on error.
+  // Every parsed line, for the position, heading and speed that samples
+  // leave out. records[i] was taken at samples[i].t. Empty on error.
+  std::vector<OxtsRecord> records;
 
   [[nodiscard]] bool ok() const { return error == KittiError::kNone; }
 };
 
 namespace internal {
-
-// Returns `s` without trailing spaces, tabs, CR and LF.
-inline std::string_view StripTrailingWhitespace(std::string_view s) {
-  const std::size_t last = s.find_last_not_of(" \t\r\n");
-  if (last == std::string_view::npos) {
-    return {};
-  }
-  return s.substr(0, last + 1);
-}
-
-// Parses the whole field as a finite double. Rejects an empty field, trailing
-// characters, "inf" and "nan".
-inline std::optional<double> ParseDouble(std::string_view field) {
-  double value = 0.0;
-  const char* const begin = field.data();
-  const char* const end = begin + field.size();
-  const auto [ptr, ec] =
-      std::from_chars(begin, end, value, std::chars_format::general);
-  if (ec != std::errc{} || ptr != end || !std::isfinite(value)) {
-    return std::nullopt;
-  }
-  return value;
-}
 
 // Parses a whole-valued number that fits in int. KITTI writes these fields
 // both as "4" and as "4.00000000000000", so "4.5" is rejected but the second
@@ -358,7 +339,8 @@ inline std::string_view ToString(KittiError error) {
 
 // Reads a KITTI oxts directory: timestamps.txt plus data/0000000000.txt and
 // onwards, one file per timestamp. Sample times are relative to the first
-// timestamp.
+// timestamp. The result holds the IMU part of each line in samples and the
+// whole line in records, at the same index.
 inline KittiReadResult ReadKittiOxts(const std::string& oxts_dir) {
   std::ifstream timestamps_file(oxts_dir + "/timestamps.txt");
   if (!timestamps_file) {
@@ -381,6 +363,7 @@ inline KittiReadResult ReadKittiOxts(const std::string& oxts_dir) {
   const std::string data_dir = oxts_dir + "/data/";
   KittiReadResult result;
   result.samples.reserve(timestamp_lines.size());
+  result.records.reserve(timestamp_lines.size());
 
   std::int64_t previous_ns = 0;
   for (std::size_t i = 0; i < timestamp_lines.size(); ++i) {
@@ -408,6 +391,7 @@ inline KittiReadResult ReadKittiOxts(const std::string& oxts_dir) {
 
     const double t = static_cast<double>(*ns - result.start_ns) * 1e-9;
     result.samples.push_back(ToImuSample(t, *record));
+    result.records.push_back(*record);
   }
 
   // There must be no more data files than timestamps.
