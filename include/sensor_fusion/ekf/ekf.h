@@ -69,8 +69,8 @@ class PlanarEkf {
     }
     const double delta_speed = imu.ax * dt;
     const double delta_yaw = imu.wz * dt;
-    const double yaw_mid = state_.yaw + 0.5 * delta_yaw;
-    const double distance = (state_.v + 0.5 * delta_speed) * dt;
+    const double yaw_mid = state_.yaw + (0.5 * delta_yaw);
+    const double distance = (state_.v + (0.5 * delta_speed)) * dt;
     if (!std::isfinite(yaw_mid) || !std::isfinite(distance)) {
       throw std::overflow_error("EKF motion prediction overflowed");
     }
@@ -135,7 +135,7 @@ class PlanarEkf {
     CheckNumerics();
   }
 
-  EkfEstimate Estimate(double t, bool updated) const {
+  [[nodiscard]] EkfEstimate Estimate(double t, bool updated) const {
     return {
         .t = t,
         .state = state_,
@@ -179,12 +179,16 @@ class PlanarEkf {
       for (std::size_t next = row + 1; next < Rows; ++next) {
         const double left = factor(next, pivot_col);
         const double right = factor(next, col);
-        factor(next, pivot_col) = cosine * left + sine * right;
-        factor(next, col) = cosine * right - sine * left;
+        factor(next, pivot_col) = (cosine * left) + (sine * right);
+        factor(next, col) = (cosine * right) - (sine * left);
       }
     }
   }
 
+  // axis is kEast or kNorth, a row index, and residual is in metres. Every
+  // call passes one of the named constants, so the two cannot be swapped
+  // unnoticed.
+  // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
   void CorrectPosition(std::size_t axis, double residual) {
     if (!std::isfinite(residual)) {
       throw std::overflow_error("EKF GNSS residual overflowed");
@@ -224,7 +228,7 @@ class PlanarEkf {
     }
   }
 
-  double StateStd(std::size_t row) const {
+  [[nodiscard]] double StateStd(std::size_t row) const {
     return std::hypot(std::hypot(covariance_root_(row, 0),
                                 covariance_root_(row, 1)),
                       std::hypot(covariance_root_(row, 2),
