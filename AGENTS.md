@@ -20,17 +20,17 @@ Sensor Fusion Core is a header-only C++20 library that fuses GNSS and IMU with a
 
 ## Layout
 
-| Path | Role |
-| --- | --- |
-| `include/sensor_fusion/io/` | NMEA parser, IMU reader, KITTI loader and scenario, GNSS CSV reader |
-| `include/matrix` | Compile-time-sized matrix library |
-| `include/sensor_fusion/ekf/` | 2D scenario types (`state.h`, `scenario.h`), the EKF (`ekf.h`), accuracy metrics (`metrics.h`). The dynamic-matrix baseline and an optional 3D model are later tasks |
-| `include/sensor_fusion/sim/` | Synthetic 2D drive (`synthetic_drive.h`) that fills a `Scenario` |
-| `apps/report/` | `kitti_run.cpp`: EKF on a KITTI drive, estimates CSV for the filterpy comparison |
-| `apps/cli/` | Future `main.cpp`: log to trajectory and metrics |
-| `tests/` | Tests, mirroring the headers once a framework is chosen |
-| `docs/project.md` | Full specification, schedule, and success criteria |
-| `data/` | Local KITTI dump and the recorded track; gitignored except the README |
+| Path                         | Role                                                                                                                                                                                                                                                                                                 |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `include/sensor_fusion/io/`  | NMEA parser, IMU reader, KITTI loader and scenario, GNSS CSV reader                                                                                                                                                                                                                                  |
+| `include/matrix`             | Compile-time-sized matrix library                                                                                                                                                                                                                                                                    |
+| `include/sensor_fusion/ekf/` | 2D EKF: static `PlanarEkf` and `RunEkf` (`ekf.h`), dynamic-matrix `PlanarEkfDynamic` and `RunEkfDynamic` (`ekf_dynamic.h`), scenario types (`state.h`, `scenario.h`), accuracy metrics (`metrics.h`). The model is in [`docs/ekf-model.md`](docs/ekf-model.md). An optional 3D model is a later task |
+| `include/sensor_fusion/sim/` | Synthetic 2D drive (`synthetic_drive.h`) that fills a `Scenario`                                                                                                                                                                                                                                     |
+| `apps/report/`               | `kitti_run.cpp`: EKF on a KITTI drive, estimates CSV for the filterpy comparison                                                                                                                                                                                                                     |
+| `apps/cli/`                  | Future `main.cpp`: log to trajectory and metrics                                                                                                                                                                                                                                                     |
+| `tests/`                     | Tests, mirroring the headers once a framework is chosen                                                                                                                                                                                                                                              |
+| `docs/project.md`            | Full specification, schedule, and success criteria                                                                                                                                                                                                                                                   |
+| `data/`                      | Local KITTI dump and the recorded track; gitignored except the README                                                                                                                                                                                                                                |
 
 ## Build
 
@@ -42,4 +42,4 @@ CMake 3.20 or newer. Configuration produces no binaries yet.
 
 ## Do not implement yet
 
-Do not add the NMEA parser, IMU or KITTI readers, the matrix library, the EKF predict/update step, benchmarks, or the CLI unless a task asks for that work. The 2D scenario types in `include/sensor_fusion/ekf/` are already in place. Identifiers, comments stay in English.
+Do not add the NMEA parser, IMU or KITTI readers, benchmarks, or the CLI unless a task asks for that work. The 2D EKF predict and update, in both the static and the dynamic implementation, and the 2D scenario types in `include/sensor_fusion/ekf/` are already in place. Identifiers, comments stay in English.
