@@ -1,6 +1,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -137,7 +138,7 @@ class OxtsDir {
 bool FailsWith(const KittiReadResult& result, KittiError error,
                std::size_t index) {
   return !result.ok() && result.error == error && result.index == index &&
-         result.samples.empty();
+         result.samples.empty() && result.records.empty();
 }
 
 void TestStripTrailingWhitespace() {
@@ -382,6 +383,64 @@ void TestReadValidDirectory() {
   CHECK(ReadKittiOxts(dir.path() + "/").samples.size() == 3);
 }
 
+// records keeps every field of every line, in the order of samples.
+void TestReadKeepsFullRecords() {
+  OxtsDir dir;
+  dir.WriteTimestamps(
+      "2011-09-26 13:08:24.0\n"
+      "2011-09-26 13:08:24.1\n"
+      "2011-09-26 13:08:24.25\n");
+  dir.WriteData(0, std::string(kRealLine) + "\n");
+  dir.WriteData(1, NumberedLine() + "\n");
+  dir.WriteData(2, NumberedLineWith(5, "-3.5") + "\n");
+
+  const KittiReadResult result = ReadKittiOxts(dir.path());
+  CHECK(result.ok());
+  CHECK(result.records.size() == 3);
+  CHECK(result.records.size() == result.samples.size());
+  if (result.records.size() != 3) {
+    return;
+  }
+
+  // Each record is the same as ParseOxtsLine() of its line.
+  const std::array<std::string, 3> lines = {
+      std::string(kRealLine), NumberedLine(), NumberedLineWith(5, "-3.5")};
+  for (std::size_t i = 0; i < lines.size(); ++i) {
+    const std::optional<OxtsRecord> parsed = ParseOxtsLine(lines[i]);
+    CHECK(parsed.has_value());
+    if (!parsed.has_value()) {
+      continue;
+    }
+    const OxtsRecord& r = result.records[i];
+    CHECK(r.lat == parsed->lat && r.lon == parsed->lon &&
+          r.alt == parsed->alt);
+    CHECK(r.roll == parsed->roll && r.pitch == parsed->pitch &&
+          r.yaw == parsed->yaw);
+    CHECK(r.vn == parsed->vn && r.ve == parsed->ve && r.vf == parsed->vf &&
+          r.vl == parsed->vl && r.vu == parsed->vu);
+    CHECK(r.ax == parsed->ax && r.wz == parsed->wz && r.wu == parsed->wu);
+    CHECK(r.pos_accuracy == parsed->pos_accuracy &&
+          r.vel_accuracy == parsed->vel_accuracy);
+    CHECK(r.navstat == parsed->navstat && r.numsats == parsed->numsats &&
+          r.posmode == parsed->posmode && r.velmode == parsed->velmode &&
+          r.orimode == parsed->orimode);
+
+    // The sample at the same index comes from the same line.
+    const ImuSample from_record = ToImuSample(result.samples[i].t, r);
+    CHECK(from_record.accel == result.samples[i].accel);
+    CHECK(from_record.gyro == result.samples[i].gyro);
+  }
+
+  // The fields the EKF needs from the first line of drive 0009.
+  CHECK(result.records[0].lat == 49.009347760599);
+  CHECK(result.records[0].lon == 8.4371344308375);
+  CHECK(result.records[0].yaw == -0.2697266732051);
+  CHECK(result.records[0].vf == 10.695750797331);
+  CHECK(result.records[0].numsats == 7);
+  CHECK(result.records[1].yaw == 6);
+  CHECK(result.records[2].yaw == -3.5);
+}
+
 void TestReadCrlfAndTrailingBlankLines() {
   OxtsDir dir;
   dir.WriteTimestamps(
@@ -517,6 +576,7 @@ int main() {
   TestErrorNames();
 
   TestReadValidDirectory();
+  TestReadKeepsFullRecords();
   TestReadCrlfAndTrailingBlankLines();
   TestReadMissingTimestamps();
   TestReadEmptyTimestamps();
