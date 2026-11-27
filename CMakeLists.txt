@@ -52,3 +52,7 @@ add_test(NAME gnss_csv_tests COMMAND gnss_csv_tests)
 add_executable(kitti_scenario_tests tests/kitti_scenario_tests.cpp)
 target_link_libraries(kitti_scenario_tests PRIVATE sensor_fusion)
 add_test(NAME kitti_scenario_tests COMMAND kitti_scenario_tests)
+
+add_executable(metrics_tests tests/metrics_tests.cpp)
+target_link_libraries(metrics_tests PRIVATE sensor_fusion)
+add_test(NAME metrics_tests COMMAND metrics_tests)
