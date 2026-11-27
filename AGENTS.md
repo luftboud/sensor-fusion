@@ -9,7 +9,7 @@ Sensor Fusion Core is a header-only C++20 library that fuses GNSS and IMU with a
 ## Decisions
 
 - Language standard is C++20. Keep `CMAKE_CXX_EXTENSIONS` off.
-- The core lives under `include/sensor_fusion/` and is header-only. The only planned `.cpp` is the CLI at `apps/cli/main.cpp`. Do not add that file until a CLI task asks for it.
+- The core lives under `include/sensor_fusion/` and is header-only. The `.cpp` files are programs: `apps/report/kitti_run.cpp` (issue #33) and, later, the CLI at `apps/cli/main.cpp`. Do not add the CLI until a CLI task asks for it.
 - Future code uses the namespace `sensor_fusion`.
 - CMake is a single root [`CMakeLists.txt`](CMakeLists.txt). The current target is the interface library `sensor_fusion` (`sensor_fusion::sensor_fusion`). Do not import the course lab template, PVS Studio, or sanitizer option blocks. AddressSanitizer and UndefinedBehaviorSanitizer are CI flags in [`.github/workflows/ci.yml`](.github/workflows/ci.yml) only.
 - Commits, branch names, and rebase merges follow [CONTRIBUTING.md](CONTRIBUTING.md). Do not add a clang-format config or a format check.
@@ -26,6 +26,7 @@ Sensor Fusion Core is a header-only C++20 library that fuses GNSS and IMU with a
 | `include/matrix` | Compile-time-sized matrix library |
 | `include/sensor_fusion/ekf/` | 2D scenario types (`state.h`, `scenario.h`), the EKF (`ekf.h`), accuracy metrics (`metrics.h`). The dynamic-matrix baseline and an optional 3D model are later tasks |
 | `include/sensor_fusion/sim/` | Synthetic 2D drive (`synthetic_drive.h`) that fills a `Scenario` |
+| `apps/report/` | `kitti_run.cpp`: EKF on a KITTI drive, estimates CSV for the filterpy comparison |
 | `apps/cli/` | Future `main.cpp`: log to trajectory and metrics |
 | `tests/` | Tests, mirroring the headers once a framework is chosen |
 | `docs/project.md` | Full specification, schedule, and success criteria |

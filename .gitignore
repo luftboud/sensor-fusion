@@ -85,3 +85,6 @@ CMakeUserPresets.json
 # Local datasets (see data/README.md)
 data/*
 !data/README.md
+
+# kitti_run_tests writes its input drive into the build directory
+tests/fixtures/kitti_run/

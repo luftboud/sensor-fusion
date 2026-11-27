@@ -37,3 +37,61 @@ The same care applies to the rest:
 - All latitudes and longitudes are converted to radians and stored before any subtraction, as numpy makes `np.radians(...)` arrays first. gcc at `-O2` and above fuses a multiply and a following add or subtract into one operation with a single rounding, even with `-std=c++20`. Fused, `Radians(lon) - lon0` rounds once instead of twice: record 0 lands about 1e-11 m from the origin instead of on it, and no row matches numpy. A stored value cannot be fused with a later subtraction.
 
 `cos` comes from the C++ math library and from numpy, which may differ in the last bit on another platform. On this machine they agree.
+
+## Running the comparison
+
+`apps/report/kitti_run.cpp` runs the C++ filter on a drive, twice: with every GNSS fix and with the outage cut out. It writes both trajectories for `ref_ekf.py --own`. The fixes come from Python, because the numpy random generator cannot be repeated in C++. First run the reference, which writes the GNSS files:
+
+```bash
+python foreign_impl/ref_ekf.py data/kitti/2011_09_26/2011_09_26_drive_0009_sync/oxts --out build/report/kitti
+```
+
+Then the C++ filter, and the reference again to compare the two:
+
+```bash
+cmake --build build --target kitti_run
+build/kitti_run --oxts data/kitti/2011_09_26/2011_09_26_drive_0009_sync/oxts \
+    --gnss build/report/kitti/gnss_full.csv \
+    --gnss-outage build/report/kitti/gnss_outage.csv
+python foreign_impl/ref_ekf.py data/kitti/2011_09_26/2011_09_26_drive_0009_sync/oxts \
+    --out build/report/kitti \
+    --own build/report/kitti/kitti_estimates.csv \
+    --own-outage build/report/kitti/kitti_estimates_outage.csv
+```
+
+Use the GNSS files that the current `ref_ekf.py` writes. Files from an older version hold other fixes, and the two filters then differ by metres.
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--oxts DIR` | required | KITTI oxts directory |
+| `--gnss FILE` | required | fixes for the whole drive, `t,east,north` |
+| `--gnss-outage FILE` | required | the same fixes with the outage cut out |
+| `--out DIR` | `build/report/kitti` | output directory, created if missing |
+| `--outage-start S`, `--outage-length S` | 15, 15 | the outage window `[start, start + length)` for the metrics; it must be the window that `ref_ekf.py` cut from the fixes |
+| `--initial-position-std`, `--initial-yaw-std`, `--initial-speed-std`, `--accel-noise-density`, `--gyro-noise-density`, `--gnss-position-std` | `EkfConfig` | filter parameters, the same names as the `EkfConfig` fields |
+
+The filter starts at `reference[0]`, as `ref_ekf.py` does. The defaults of `EkfConfig` equal `PARAMS` in `ref_ekf.py`. Pass a flag only if the Python side changes the same value.
+
+Outputs, one row per IMU step:
+
+- `kitti_estimates.csv` and `kitti_estimates_outage.csv`, columns `t,east,north,yaw,v,std_east,std_north,updated`;
+- each number is the shortest text that reads back as the same double, so two runs give identical files;
+- `updated` is 1 on the step that consumed a fix;
+- `kitti_metrics.json` holds the accuracy figures of [metrics](metrics.md): the RMSE of raw GNSS and of the filter, the RMSE in the outage window with and without GNSS before it, and the error ratio at reacquisition.
+
+Each file is written as `<name>.tmp` and renamed when all three are complete, so a failed run leaves earlier outputs as they were.
+
+stdout stays empty. A one-line status or the reason for a failure goes to stderr. Exit status:
+
+- 0: done;
+- 1: an input does not read, the filter fails, or an output cannot be written;
+- 2: bad arguments, including filter parameters that `EkfConfig` rejects.
+
+On drive 0009, both C++ trajectories match filterpy 2.0.0 to 8e-14 m in position and 2e-14 m in standard deviation, built with clang or with gcc (see [metrics](metrics.md#agreement-with-ref_ekfpy)). The metrics are:
+
+| Metric | Value |
+| --- | --- |
+| raw GNSS RMSE | 2.108 m |
+| filter RMSE | 1.328 m, 37% below raw GNSS |
+| outage window RMSE, filter / IMU only | 6.942 m / 22.980 m |
+| error at reacquisition (30.43 s), filter / IMU only | 13.71 m / 32.09 m, ratio 2.3 |
