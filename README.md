@@ -31,13 +31,15 @@ sensor-fusion/
   include/sensor_fusion/
     io/          NMEA, IMU, KITTI, and GNSS CSV readers
     matrix/      compile-time-sized matrices
-    ekf/         2D scenario types, the EKF, and accuracy metrics (3D if time allows)
+    ekf/         2D EKF (static and dynamic), scenario types, and accuracy metrics; 3D if time allows
     sim/         synthetic 2D drive that fills a scenario
   apps/report/   kitti_run: EKF on a KITTI drive for the filterpy comparison
   apps/cli/      future CLI entry point (apps/cli/main.cpp)
   tests/
   docs/project.md
   docs/ua/project.md   Ukrainian specification
+  docs/ekf-model.md         EKF model: equations, state, noise, interface, limits
+  docs/ua/ekf-model.md      EKF model, in Ukrainian
   docs/ekf-scenario.md
   docs/ua/ekf-scenario.md   2D scenario types, in Ukrainian
   docs/synthetic-drive.md
@@ -48,6 +50,8 @@ sensor-fusion/
   docs/ua/metrics.md   accuracy metrics, in Ukrainian
   data/README.md
 ```
+
+The EKF model, with its equations, state, noise, interface, both implementations, and known limits, is on one page: [docs/ekf-model.md](docs/ekf-model.md). The Ukrainian version is [docs/ua/ekf-model.md](docs/ua/ekf-model.md).
 
 `benchmarks/` (weeks 7–8) and a Python tree for the filterpy check and trajectory plots are not in the tree yet. They will be added with that work.
 
