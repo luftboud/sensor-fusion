@@ -31,7 +31,7 @@ sensor-fusion/
   include/sensor_fusion/
     io/          NMEA, IMU, KITTI, and GNSS CSV readers
     matrix/      compile-time-sized matrices
-    ekf/         2D scenario types; predict/update is a later task (3D if time allows)
+    ekf/         2D scenario types, the EKF, and accuracy metrics (3D if time allows)
     sim/         synthetic 2D drive that fills a scenario
   apps/cli/      future CLI entry point (apps/cli/main.cpp)
   tests/
@@ -43,6 +43,8 @@ sensor-fusion/
   docs/ua/synthetic-drive.md   synthetic drive, in Ukrainian
   docs/kitti-scenario.md
   docs/ua/kitti-scenario.md   KITTI drive as a scenario, in Ukrainian
+  docs/metrics.md
+  docs/ua/metrics.md   accuracy metrics, in Ukrainian
   data/README.md
 ```
 
