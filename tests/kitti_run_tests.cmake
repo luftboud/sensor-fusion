@@ -43,6 +43,9 @@ file(WRITE "${FIXTURE}/gnss.csv"
 file(WRITE "${FIXTURE}/gnss_outage.csv"
   "t,east,north\n5e-02,0.5,0.25\n3.5e-01,2.5,1.5\n")
 file(WRITE "${FIXTURE}/gnss_none.csv" "t,east,north\n")
+# Not cut from gnss.csv: the last fix is 0.1 m further north.
+file(WRITE "${FIXTURE}/gnss_other.csv"
+  "t,east,north\n5e-02,0.5,0.25\n3.5e-01,2.5,1.6\n")
 
 # Reports a failed check and keeps going, so that one run shows them all.
 function(fail text)
@@ -191,10 +194,11 @@ string(JSON no_gnss_raw TYPE "${no_gnss}" raw_gnss_rmse)
 if(NOT no_gnss_raw STREQUAL "NULL")
   fail("raw_gnss_rmse without fixes is ${no_gnss_raw}, expected null")
 endif()
-# The raw GNSS error uses every fix, not the ones left after the outage.
+# The raw GNSS error uses every fix, not the ones left after the outage. A
+# window with no fix inside cuts nothing, so the full file is the outage file.
 expect_exit(0 --oxts "${FIXTURE}/oxts" --gnss "${FIXTURE}/gnss.csv"
             --gnss-outage "${FIXTURE}/gnss.csv" --out "${WORK}/no_outage"
-            --outage-start 0.125 --outage-length 0.125)
+            --outage-start 0.2 --outage-length 0.1)
 file(READ "${WORK}/no_outage/${metrics_name}" no_outage)
 string(JSON raw GET "${metrics}" raw_gnss_rmse)
 string(JSON no_outage_raw GET "${no_outage}" raw_gnss_rmse)
@@ -209,9 +213,10 @@ if(NOT filter STREQUAL outage)
 endif()
 
 # A window with no fix after it has no reacquisition, and one with no step
-# inside it has no window RMSE. Both are null, not zero.
+# inside it has no window RMSE. Both are null, not zero. No fix lies in the
+# window, so the outage file is the full one.
 expect_exit(0 --oxts "${FIXTURE}/oxts" --gnss "${FIXTURE}/gnss.csv"
-            --gnss-outage "${FIXTURE}/gnss_outage.csv" --out "${WORK}/late"
+            --gnss-outage "${FIXTURE}/gnss.csv" --out "${WORK}/late"
             --outage-start 0.41 --outage-length 0.05)
 file(READ "${WORK}/late/${metrics_name}" late)
 foreach(key reacquisition outage_window_rmse imu_only_window_rmse)
@@ -258,6 +263,19 @@ expect_exit(1 --oxts "${FIXTURE}/oxts" --gnss "${FIXTURE}/oxts/timestamps.txt"
             --gnss-outage "${FIXTURE}/gnss_outage.csv" --out "${WORK}/first")
 expect_exit(1 --oxts "${FIXTURE}/oxts" --gnss "${FIXTURE}/gnss.csv"
             --gnss-outage "${WORK}/missing.csv" --out "${WORK}/first")
+# An outage file that is not the full file without the window: the full file
+# itself, which keeps the fix at 0.15 s inside the window; a file cut with
+# another window, which lacks the fix at 0.15 s outside [0.3, 0.4); and a
+# file whose fix differs from the full one.
+set(window --outage-start 0.125 --outage-length 0.125)
+expect_exit(1 --oxts "${FIXTURE}/oxts" --gnss "${FIXTURE}/gnss.csv"
+            --gnss-outage "${FIXTURE}/gnss.csv" --out "${WORK}/first" ${window})
+expect_exit(1 --oxts "${FIXTURE}/oxts" --gnss "${FIXTURE}/gnss.csv"
+            --gnss-outage "${FIXTURE}/gnss_outage.csv" --out "${WORK}/first"
+            --outage-start 0.3 --outage-length 0.1)
+expect_exit(1 --oxts "${FIXTURE}/oxts" --gnss "${FIXTURE}/gnss.csv"
+            --gnss-outage "${FIXTURE}/gnss_other.csv" --out "${WORK}/first"
+            ${window})
 file(READ "${WORK}/first/${full_name}" after)
 if(NOT before STREQUAL after)
   fail("a failed run changed ${full_name}")

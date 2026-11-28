@@ -65,7 +65,7 @@ Use the GNSS files that the current `ref_ekf.py` writes. Files from an older ver
 | --- | --- | --- |
 | `--oxts DIR` | required | KITTI oxts directory |
 | `--gnss FILE` | required | fixes for the whole drive, `t,east,north` |
-| `--gnss-outage FILE` | required | the same fixes with the outage cut out |
+| `--gnss-outage FILE` | required | the same fixes with the outage window cut out: every fix of `--gnss` outside the window, in the same order, and none inside |
 | `--out DIR` | `build/report/kitti` | output directory, created if missing |
 | `--outage-start S`, `--outage-length S` | 15, 15 | the outage window `[start, start + length)` for the metrics; it must be the window that `ref_ekf.py` cut from the fixes |
 | `--initial-position-std`, `--initial-yaw-std`, `--initial-speed-std`, `--accel-noise-density`, `--gyro-noise-density`, `--gnss-position-std` | `EkfConfig` | filter parameters, the same names as the `EkfConfig` fields |
@@ -84,7 +84,7 @@ Each file is written as `<name>.tmp` and renamed when all three are complete, so
 stdout stays empty. A one-line status or the reason for a failure goes to stderr. Exit status:
 
 - 0: done;
-- 1: an input does not read, the filter fails, or an output cannot be written;
+- 1: an input does not read, the outage file is not the full file without the outage window, the filter fails, or an output cannot be written;
 - 2: bad arguments, including filter parameters that `EkfConfig` rejects.
 
 On drive 0009, both C++ trajectories match filterpy 2.0.0 to 8e-14 m in position and 2e-14 m in standard deviation, built with clang or with gcc (see [metrics](metrics.md#agreement-with-ref_ekfpy)). The metrics are:
