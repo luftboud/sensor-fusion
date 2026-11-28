@@ -8,15 +8,21 @@
     Usage:
         python foreign_impl/ref_ekf.py data/kitti/2011_09_26/2011_09_26_drive_0009_sync/oxts
         python foreign_impl/ref_ekf.py OXTS_DIR [--own own_full.csv --own-outage own_outage.csv]
+            [--json compare.json]
+
+    --json writes max|own - filterpy| per column for each --own run, for
+    tools/report.py.
 """
 
 import argparse
+import json
 import pathlib
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+import filterpy
 from filterpy.kalman import ExtendedKalmanFilter
 
 EARTH_RADIUS_M = 6378137.0
@@ -205,6 +211,7 @@ def main():
     parser.add_argument("--own", help="C++ estimates CSV, full GNSS")
     parser.add_argument("--own-outage", help="C++ estimates CSV, with outage")
     parser.add_argument("--out", default="docs/ekf-compare")
+    parser.add_argument("--json", help="write the --own comparison as JSON")
     args = parser.parse_args()
     params = PARAMS
     out_dir = pathlib.Path(args.out)
@@ -256,15 +263,37 @@ def main():
           f"(ratio {error_dead[before] / max(error_outage[before], 1e-9):.1f}x; "
           f"target >=3x)")
 
-    for csv_path, filterpy_states, filterpy_stds in (
-            (args.own, full_states, full_stds),
-            (args.own_outage, outage_states, outage_stds)):
+    comparison_runs = {}
+    for run_name, csv_path, filterpy_states, filterpy_stds in (
+            ("full", args.own, full_states, full_stds),
+            ("outage", args.own_outage, outage_states, outage_stds)):
         if csv_path:
-            own = np.loadtxt(csv_path, delimiter=",", skiprows=1)
+            own = np.loadtxt(csv_path, delimiter=",", skiprows=1, ndmin=2)
+            run = {"own": csv_path, "rows": int(own.shape[0]),
+                   "filterpy_rows": int(filterpy_states.shape[0])}
+            comparison_runs[run_name] = run
+            if own.shape[0] != filterpy_states.shape[0] or own.shape[1] < 7:
+                run["error"] = "row count mismatch"
+                print(f"{csv_path}: {own.shape[0]} rows, filterpy has "
+                      f"{filterpy_states.shape[0]}")
+                continue
             state_diff = np.abs(own[:, 1:5] - filterpy_states).max(axis=0)
             std_diff = np.abs(own[:, 5:7] - filterpy_stds).max(axis=0)
+            run["max_abs_diff"] = dict(zip(
+                ("east", "north", "yaw", "v", "std_east", "std_north"),
+                (float(x) for x in np.r_[state_diff, std_diff])))
             print(f"{csv_path}: max|own-filterpy| east,north,yaw,v = {state_diff}; "
                   f"std_east,std_north = {std_diff}")
+    if args.json:
+        json_path = pathlib.Path(args.json)
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        json_path.write_text(json.dumps({
+            "schema": 1,
+            "producer": "ref_ekf.py",
+            "filterpy_version": filterpy.__version__,
+            "oxts": args.oxts_dir,
+            "runs": comparison_runs,
+        }, indent=2) + "\n")
 
     fig, ax = plt.subplots(figsize=(7, 6))
     ax.plot(reference[:, 0], reference[:, 1], "k", label="reference")
