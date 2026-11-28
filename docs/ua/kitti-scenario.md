@@ -59,6 +59,8 @@ python foreign_impl/ref_ekf.py data/kitti/2011_09_26/2011_09_26_drive_0009_sync/
     --own-outage build/report/kitti/kitti_estimates_outage.csv
 ```
 
+З `--json FILE` скрипт `ref_ekf.py` ще записує найбільше `|own - filterpy|` для кожного стовпця кожного запуску з `--own`. `tools/report.py` запускає всі три команди й оцінює за цим файлом критерій 1.
+
 Беріть файли GNSS, які пише нинішній `ref_ekf.py`. Файли від старішої версії містять інші фікси, і тоді фільтри розходяться на метри.
 
 | Прапорець | Типово | Значення |

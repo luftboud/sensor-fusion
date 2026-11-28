@@ -59,6 +59,8 @@ python foreign_impl/ref_ekf.py data/kitti/2011_09_26/2011_09_26_drive_0009_sync/
     --own-outage build/report/kitti/kitti_estimates_outage.csv
 ```
 
+With `--json FILE`, `ref_ekf.py` also writes the largest `|own - filterpy|` for every column of each `--own` run. `tools/report.py` runs all three commands and judges criterion 1 from that file.
+
 Use the GNSS files that the current `ref_ekf.py` writes. Files from an older version hold other fixes, and the two filters then differ by metres.
 
 | Flag | Default | Meaning |

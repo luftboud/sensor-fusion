@@ -53,7 +53,7 @@ sensor-fusion/
 
 The EKF model, with its equations, state, noise, interface, both implementations, and known limits, is on one page: [docs/ekf-model.md](docs/ekf-model.md). The Ukrainian version is [docs/ua/ekf-model.md](docs/ua/ekf-model.md).
 
-`benchmarks/` (weeks 7–8) and a Python tree for the filterpy check and trajectory plots are not in the tree yet. They will be added with that work.
+`benchmarks/` (weeks 7–8) is not in the tree yet. It will be added with that work. Python lives in `foreign_impl/ref_ekf.py` (the filterpy reference) and `tools/` (the report script and the KITTI survey).
 
 ## Build
 
@@ -66,6 +66,16 @@ cmake -S . -B build
 Requires CMake 3.20 or newer and a C++20 compiler.
 
 Datasets stay on disk and are not committed. See [data/README.md](data/README.md).
+
+## Report
+
+`tools/report.py` builds the project, runs the tests and every measuring program, and checks the results against the success criteria. It prints one table and writes [docs/report/summary.md](docs/report/summary.md), `accuracy.md` and `kitti.md`. The KITTI part needs the drive in `data/` and a Python with `tools/requirements.txt`.
+
+```bash
+python tools/report.py --python .venv/bin/python
+```
+
+Only `met` is a pass. `not run`, `not measured`, `stale` and `partial` are not. `--strict` makes any of them exit with status 1.
 
 ## Contributing
 
