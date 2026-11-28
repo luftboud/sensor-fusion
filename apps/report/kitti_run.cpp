@@ -59,14 +59,15 @@ constexpr std::string_view kUsage =
     "\n"
     "  --oxts DIR         KITTI oxts directory (timestamps.txt and data/)\n"
     "  --gnss FILE        GNSS fixes for the whole drive, t,east,north\n"
-    "  --gnss-outage FILE the same fixes with the outage cut out\n"
+    "  --gnss-outage FILE the same fixes with the outage window cut out\n"
     "  --out DIR          output directory, default build/report/kitti\n"
     "  --outage-start S   start of the outage window, default 15 s\n"
     "  --outage-length S  length of the outage window, default 15 s\n"
     "\n"
     "The filter flags default to EkfConfig. The initial state is the first\n"
     "reference sample: east 0, north 0, the OXTS yaw and the forward speed.\n"
-    "The outage window must match the one ref_ekf.py cut from the fixes.\n"
+    "The outage window must match the one ref_ekf.py cut from the fixes:\n"
+    "the outage file must hold every fix outside it and none inside.\n"
     "Writes kitti_estimates.csv, kitti_estimates_outage.csv and\n"
     "kitti_metrics.json.\n"
     "Exit status: 0 done, 1 bad input data or write error, 2 bad arguments.\n";
@@ -364,6 +365,53 @@ std::optional<std::vector<GnssFix>> ReadFixes(const std::string& path) {
   return result.fixes;
 }
 
+// AppendNumber() as a string, for messages.
+std::string NumberText(double value) {
+  std::string text;
+  AppendNumber(value, text);
+  return text;
+}
+
+// The two GNSS inputs, named so that they cannot be passed swapped.
+struct GnssFiles {
+  std::span<const GnssFix> full;    // --gnss
+  std::span<const GnssFix> outage;  // --gnss-outage
+};
+
+// The outage file must hold exactly the fixes of the full file outside the
+// window, in the same order, as cut_outage() in ref_ekf.py writes it. Any
+// other file, such as the full file itself or one cut with another window,
+// would give metrics for an outage that did not happen. Returns why the two
+// files disagree, or std::nullopt when they agree.
+std::optional<std::string> OutageMismatch(const GnssFiles& gnss,
+                                          const TimeWindow& window) {
+  const std::span<const GnssFix> outage_fixes = gnss.outage;
+  std::size_t next = 0;  // The next outage fix to match.
+  for (const GnssFix& fix : gnss.full) {
+    if (window.Contains(fix.t)) {
+      continue;
+    }
+    if (next == outage_fixes.size()) {
+      return "it lacks the fix at t = " + NumberText(fix.t) + " s";
+    }
+    const GnssFix& kept = outage_fixes[next];
+    if (kept.t != fix.t || kept.east != fix.east || kept.north != fix.north) {
+      break;
+    }
+    ++next;
+  }
+  if (next == outage_fixes.size()) {
+    return std::nullopt;
+  }
+  const GnssFix& extra = outage_fixes[next];
+  if (window.Contains(extra.t)) {
+    return "it keeps the fix at t = " + NumberText(extra.t) +
+           " s inside the window";
+  }
+  return "its fix at t = " + NumberText(extra.t) +
+         " s is not the next fix of the full file";
+}
+
 // RunEkf() reports an invalid configuration or a numeric failure by
 // throwing. This catches it and prints why.
 std::optional<std::vector<EkfEstimate>> RunFilter(
@@ -402,6 +450,17 @@ int Run(const Options& options) {
   if (!fixes.has_value() || !outage_fixes.has_value()) {
     return kExitDataError;
   }
+  const TimeWindow window = {
+      .start = options.outage_start,
+      .end = options.outage_start + options.outage_length,
+  };
+  if (const std::optional<std::string> mismatch =
+          OutageMismatch({.full = *fixes, .outage = *outage_fixes}, window)) {
+    Report(options.gnss_outage_path + " is not " + options.gnss_path +
+           " without the outage window [" + NumberText(window.start) + ", " +
+           NumberText(window.end) + ") s: " + *mismatch);
+    return kExitDataError;
+  }
 
   // Both filters start where ref_ekf.py starts: at the first reference
   // sample, which is (0, 0, yaw0, vf0).
@@ -418,10 +477,6 @@ int Run(const Options& options) {
     return kExitDataError;
   }
 
-  const TimeWindow window = {
-      .start = options.outage_start,
-      .end = options.outage_start + options.outage_length,
-  };
   const std::optional<FusionMetrics> metrics = ComputeFusionMetrics({
       .reference = scenario.reference,
       .gnss = *fixes,
