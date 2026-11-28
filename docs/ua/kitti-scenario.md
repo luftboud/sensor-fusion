@@ -77,7 +77,20 @@ python foreign_impl/ref_ekf.py data/kitti/2011_09_26/2011_09_26_drive_0009_sync/
 - `kitti_estimates.csv` і `kitti_estimates_outage.csv`, стовпці `t,east,north,yaw,v,std_east,std_north,updated`;
 - кожне число записано найкоротшим текстом, що читається назад у той самий `double`, тож два запуски дають однакові файли;
 - `updated` дорівнює 1 на кроці, який використав фікс;
-- `kitti_metrics.json` містить показники точності з [метрик](metrics.md): RMSE сирого GNSS і фільтра, RMSE у вікні відключення з GNSS до нього і без, та відношення похибок на моменті повторного захоплення.
+- `kitti_metrics.json` описує запуск і його показники точності, див. нижче.
+
+`kitti_metrics.json` має шість розділів у такому порядку:
+
+| Ключ | Що містить |
+| --- | --- |
+| `schema` | версію формату, зараз 1. Вона зростає, коли ключ перейменовано, вилучено або змінено його зміст; новий ключ її не змінює |
+| `producer` | `"kitti_run"` |
+| `dataset` | `oxts`, як його передали, `steps` і `duration_s` від першого кроку до останнього |
+| `gnss` | `full_fixes`, `outage_fixes`, `outage_start_s`, `outage_length_s` |
+| `config` | шість параметрів фільтра з назвами, як у прапорців: `initial_position_std` для `--initial-position-std` |
+| `metrics` | `raw_gnss_rmse_m`, `filter_rmse_m`, `filter_rmse_reduction`, `filter_outage_rmse_route_m`, `filter_outage_rmse_window_m`, `imu_only_window_rmse_m` і `reacquisition` з `t_s`, `filter_error_m`, `imu_only_error_m`, `ratio` |
+
+Суфікси `_m` і `_s` — метри й секунди. Метрики ті самі, що у [`FusionMetrics`](metrics.md#набір). Значення, для якого нема чого усереднювати, дорівнює `null`; так само `reacquisition`, коли після вікна немає фікса.
 
 Кожен файл спершу пишеться як `<назва>.tmp` і перейменовується, коли всі три готові, тож невдалий запуск лишає попередні результати як були.
 

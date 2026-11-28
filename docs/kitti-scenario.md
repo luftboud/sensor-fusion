@@ -77,7 +77,20 @@ Outputs, one row per IMU step:
 - `kitti_estimates.csv` and `kitti_estimates_outage.csv`, columns `t,east,north,yaw,v,std_east,std_north,updated`;
 - each number is the shortest text that reads back as the same double, so two runs give identical files;
 - `updated` is 1 on the step that consumed a fix;
-- `kitti_metrics.json` holds the accuracy figures of [metrics](metrics.md): the RMSE of raw GNSS and of the filter, the RMSE in the outage window with and without GNSS before it, and the error ratio at reacquisition.
+- `kitti_metrics.json` holds the run and its accuracy figures, see below.
+
+`kitti_metrics.json` has six sections, in this order:
+
+| Key | Holds |
+| --- | --- |
+| `schema` | the layout version, now 1. It goes up when a key is renamed, removed or changes meaning; a new key keeps it |
+| `producer` | `"kitti_run"` |
+| `dataset` | `oxts` as passed, `steps`, and `duration_s` from the first step to the last |
+| `gnss` | `full_fixes`, `outage_fixes`, `outage_start_s`, `outage_length_s` |
+| `config` | the six filter parameters, named like the flags: `initial_position_std` for `--initial-position-std` |
+| `metrics` | `raw_gnss_rmse_m`, `filter_rmse_m`, `filter_rmse_reduction`, `filter_outage_rmse_route_m`, `filter_outage_rmse_window_m`, `imu_only_window_rmse_m`, and `reacquisition` with `t_s`, `filter_error_m`, `imu_only_error_m`, `ratio` |
+
+The `_m` and `_s` suffixes are metres and seconds. The metrics are those of [`FusionMetrics`](metrics.md#the-set). A value with nothing to average is `null`, and so is `reacquisition` when no fix follows the window.
 
 Each file is written as `<name>.tmp` and renamed when all three are complete, so a failed run leaves earlier outputs as they were.
 

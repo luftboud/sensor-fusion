@@ -49,6 +49,9 @@ constexpr std::string_view kEstimatesHeader =
 constexpr std::string_view kFullName = "kitti_estimates.csv";
 constexpr std::string_view kOutageName = "kitti_estimates_outage.csv";
 constexpr std::string_view kMetricsName = "kitti_metrics.json";
+// The layout of kitti_metrics.json. Increase it when a key is renamed,
+// removed or changes meaning; adding a key keeps the number.
+constexpr std::size_t kMetricsSchema = 1;
 
 constexpr std::string_view kUsage =
     "usage: kitti_run --oxts DIR --gnss FILE --gnss-outage FILE [--out DIR]\n"
@@ -247,72 +250,160 @@ bool WriteTemporary(const std::string& path, std::string_view text) {
   return false;
 }
 
-// Appends a JSON number, or null for a missing or non-finite value.
-void AppendJsonNumber(std::optional<double> value, std::string& text) {
-  if (value.has_value() && std::isfinite(*value)) {
-    AppendNumber(*value, text);
-  } else {
-    text += "null";
+// Appends value as a JSON string: quoted, with quotes, backslashes and
+// control characters escaped.
+void AppendJsonString(std::string_view value, std::string& text) {
+  constexpr std::string_view kHex = "0123456789abcdef";
+  text += '"';
+  for (const char c : value) {
+    const auto code = static_cast<unsigned char>(c);
+    if (c == '"' || c == '\\') {
+      text += '\\';
+      text += c;
+    } else if (code < 0x20) {
+      text += "\\u00";
+      text += kHex[code >> 4U];
+      text += kHex[code & 0xFU];
+    } else {
+      text += c;
+    }
   }
+  text += '"';
 }
 
-struct RunCounts {
+// Builds indented JSON one key or value at a time. Objects nest; every key
+// is followed by exactly one value or object.
+class JsonWriter {
+ public:
+  void BeginObject() {
+    text_ += '{';
+    first_.push_back(true);
+  }
+  void EndObject() {
+    first_.pop_back();
+    text_ += '\n';
+    Indent();
+    text_ += '}';
+  }
+  void Key(std::string_view name) {
+    if (!first_.back()) {
+      text_ += ',';
+    }
+    first_.back() = false;
+    text_ += '\n';
+    Indent();
+    AppendJsonString(name, text_);
+    text_ += ": ";
+  }
+  void String(std::string_view value) { AppendJsonString(value, text_); }
+  void Integer(std::size_t value) { text_ += std::to_string(value); }
+  // null for a missing or non-finite value.
+  void Number(std::optional<double> value) {
+    if (value.has_value() && std::isfinite(*value)) {
+      AppendNumber(*value, text_);
+    } else {
+      text_ += "null";
+    }
+  }
+  void Null() { text_ += "null"; }
+  [[nodiscard]] std::string Finish() const { return text_ + '\n'; }
+
+ private:
+  void Indent() { text_.append(2 * first_.size(), ' '); }
+
+  std::string text_;
+  std::vector<bool> first_;  // Per open object: no key written yet.
+};
+
+// "--initial-position-std" as the JSON key "initial_position_std".
+std::string ConfigKey(std::string_view flag) {
+  std::string key(flag.substr(2));
+  std::ranges::replace(key, '-', '_');
+  return key;
+}
+
+// What kitti_metrics.json describes besides the metrics.
+struct MetricsContext {
+  const Options& options;
   std::size_t steps = 0;
+  double duration = 0.0;  // Last step time minus the first (s).
   std::size_t fixes = 0;
   std::size_t outage_fixes = 0;
 };
 
-std::string MetricsJson(const FusionMetrics& metrics, const RunCounts& counts,
-                        const TimeWindow& window) {
-  std::string text = "{\n";
-  const auto field = [&text](std::string_view name) {
-    text += "  \"";
-    text += name;
-    text += "\": ";
-  };
-  field("steps");
-  text += std::to_string(counts.steps) + ",\n";
-  field("gnss_fixes");
-  text += std::to_string(counts.fixes) + ",\n";
-  field("gnss_outage_fixes");
-  text += std::to_string(counts.outage_fixes) + ",\n";
-  field("outage_window");
-  text += "{\"start\": ";
-  AppendJsonNumber(window.start, text);
-  text += ", \"end\": ";
-  AppendJsonNumber(window.end, text);
-  text += "},\n";
-  const std::array<std::pair<std::string_view, std::optional<double>>, 6>
-      values = {{
-          {"raw_gnss_rmse", metrics.raw_gnss_rmse},
-          {"filter_rmse", metrics.filter_rmse},
-          {"filter_rmse_reduction", metrics.filter_rmse_reduction},
-          {"outage_rmse", metrics.outage_rmse},
-          {"outage_window_rmse", metrics.outage_window_rmse},
-          {"imu_only_window_rmse", metrics.imu_only_window_rmse},
-      }};
-  for (const auto& [name, value] : values) {
-    field(name);
-    AppendJsonNumber(value, text);
-    text += ",\n";
+std::string MetricsJson(const FusionMetrics& metrics,
+                        const MetricsContext& context) {
+  JsonWriter json;
+  json.BeginObject();
+  json.Key("schema");
+  json.Integer(kMetricsSchema);
+  json.Key("producer");
+  json.String(kProgram);
+
+  json.Key("dataset");
+  json.BeginObject();
+  json.Key("oxts");
+  json.String(context.options.oxts_dir);
+  json.Key("steps");
+  json.Integer(context.steps);
+  json.Key("duration_s");
+  json.Number(context.duration);
+  json.EndObject();
+
+  json.Key("gnss");
+  json.BeginObject();
+  json.Key("full_fixes");
+  json.Integer(context.fixes);
+  json.Key("outage_fixes");
+  json.Integer(context.outage_fixes);
+  json.Key("outage_start_s");
+  json.Number(context.options.outage_start);
+  json.Key("outage_length_s");
+  json.Number(context.options.outage_length);
+  json.EndObject();
+
+  json.Key("config");
+  json.BeginObject();
+  for (const NumberFlag& number : kNumberFlags) {
+    json.Key(ConfigKey(number.name));
+    json.Number(context.options.config.*number.field);
   }
-  field("reacquisition");
+  json.EndObject();
+
+  json.Key("metrics");
+  json.BeginObject();
+  json.Key("raw_gnss_rmse_m");
+  json.Number(metrics.raw_gnss_rmse);
+  json.Key("filter_rmse_m");
+  json.Number(metrics.filter_rmse);
+  json.Key("filter_rmse_reduction");
+  json.Number(metrics.filter_rmse_reduction);
+  json.Key("filter_outage_rmse_route_m");
+  json.Number(metrics.outage_rmse);
+  json.Key("filter_outage_rmse_window_m");
+  json.Number(metrics.outage_window_rmse);
+  json.Key("imu_only_window_rmse_m");
+  json.Number(metrics.imu_only_window_rmse);
+  json.Key("reacquisition");
   if (metrics.reacquisition.has_value()) {
     const Reacquisition& reacquisition = *metrics.reacquisition;
-    text += "{\"t\": ";
-    AppendJsonNumber(reacquisition.t, text);
-    text += ", \"filter_error\": ";
-    AppendJsonNumber(reacquisition.filter_error, text);
-    text += ", \"imu_only_error\": ";
-    AppendJsonNumber(reacquisition.imu_only_error, text);
-    text += ", \"ratio\": ";
-    AppendJsonNumber(reacquisition.ratio, text);
-    text += "}\n";
+    json.BeginObject();
+    json.Key("t_s");
+    json.Number(reacquisition.t);
+    json.Key("filter_error_m");
+    json.Number(reacquisition.filter_error);
+    json.Key("imu_only_error_m");
+    json.Number(reacquisition.imu_only_error);
+    json.Key("ratio");
+    json.Number(reacquisition.ratio);
+    json.EndObject();
   } else {
-    text += "null\n";
+    json.Null();
   }
-  text += "}\n";
-  return text;
+  json.EndObject();
+
+  json.EndObject();
+  return json.Finish();
 }
 
 struct OutputFile {
@@ -491,9 +582,13 @@ int Run(const Options& options) {
   }
 
   const std::string prefix = options.out_dir + "/";
-  const RunCounts counts = {.steps = full->size(),
-                            .fixes = fixes->size(),
-                            .outage_fixes = outage_fixes->size()};
+  const MetricsContext context = {
+      .options = options,
+      .steps = full->size(),
+      .duration = scenario.reference.back().t - scenario.reference.front().t,
+      .fixes = fixes->size(),
+      .outage_fixes = outage_fixes->size(),
+  };
   if (!WriteOutputs(
           options.out_dir,
           {{.path = prefix + std::string(kFullName),
@@ -501,7 +596,7 @@ int Run(const Options& options) {
            {.path = prefix + std::string(kOutageName),
             .text = EstimatesCsv(*outage)},
            {.path = prefix + std::string(kMetricsName),
-            .text = MetricsJson(*metrics, counts, window)}})) {
+            .text = MetricsJson(*metrics, context)}})) {
     return kExitDataError;
   }
   Report(std::to_string(full->size()) + " steps, " +

@@ -143,8 +143,8 @@ if(NOT updated_count EQUAL 2)
   fail("${outage_name}: ${updated_count} updated rows, expected 2")
 endif()
 
-# The metrics. Values that depend on the filter are checked for presence
-# and sign; the counts, the window and the reacquisition step are exact.
+# The metrics file. Values that depend on the filter are checked for presence
+# and sign; the rest is exact.
 file(READ "${WORK}/first/${metrics_name}" metrics)
 macro(expect_json expected)
   string(JSON actual ERROR_VARIABLE json_error GET "${metrics}" ${ARGN})
@@ -154,28 +154,60 @@ macro(expect_json expected)
     fail("${metrics_name}: ${ARGN} is '${actual}', expected '${expected}'")
   endif()
 endmacro()
-expect_json(5 steps)
-expect_json(3 gnss_fixes)
-expect_json(2 gnss_outage_fixes)
-expect_json(0.125 outage_window start)
-expect_json(0.25 outage_window end)
+# string(JSON GET) prints numbers with 17 digits, so a decimal value is
+# checked as it stands in the file instead.
+macro(expect_text line)
+  string(FIND "${metrics}" "${line}\n" position)
+  if(position EQUAL -1)
+    fail("${metrics_name}: no line '${line}'")
+  endif()
+endmacro()
+expect_json(1 schema)
+expect_json(kitti_run producer)
+expect_json("${FIXTURE}/oxts" dataset oxts)
+expect_json(5 dataset steps)
+expect_text("    \"duration_s\": 0.4")
+expect_json(3 gnss full_fixes)
+expect_json(2 gnss outage_fixes)
+expect_text("    \"outage_start_s\": 0.125,")
+expect_text("    \"outage_length_s\": 0.125")
+# The EkfConfig defaults, under the names of the flags.
+expect_text("    \"initial_position_std\": 2,")
+expect_text("    \"initial_yaw_std\": 0.2,")
+expect_text("    \"initial_speed_std\": 1,")
+expect_text("    \"accel_noise_density\": 0.3,")
+expect_text("    \"gyro_noise_density\": 0.03,")
+expect_text("    \"gnss_position_std\": 2")
 # The first fix after the window is at 0.35 s, consumed on the step at
 # 0.4 s, so the step before it is at 0.3 s: 300000000 ns * 1e-9.
-expect_json(0.30000000000000004 reacquisition t)
-foreach(key raw_gnss_rmse filter_rmse outage_rmse outage_window_rmse
-            imu_only_window_rmse)
-  string(JSON value ERROR_VARIABLE json_error GET "${metrics}" ${key})
+expect_json(0.30000000000000004 metrics reacquisition t_s)
+foreach(key raw_gnss_rmse_m filter_rmse_m filter_outage_rmse_route_m
+            filter_outage_rmse_window_m imu_only_window_rmse_m)
+  string(JSON value ERROR_VARIABLE json_error GET "${metrics}" metrics ${key})
   if(json_error OR NOT value MATCHES "^[0-9][0-9.e+-]*$")
     fail("${metrics_name}: ${key} is '${value}', expected a positive number")
   endif()
 endforeach()
-foreach(key filter_error imu_only_error ratio)
+# Below zero here: over five steps the filter is still worse than raw GNSS.
+string(JSON value ERROR_VARIABLE json_error GET "${metrics}"
+       metrics filter_rmse_reduction)
+if(json_error OR NOT value MATCHES "^-?[0-9][0-9.e+-]*$")
+  fail("${metrics_name}: filter_rmse_reduction is '${value}'")
+endif()
+foreach(key filter_error_m imu_only_error_m ratio)
   string(JSON value ERROR_VARIABLE json_error GET "${metrics}"
-         reacquisition ${key})
+         metrics reacquisition ${key})
   if(json_error OR NOT value MATCHES "^[0-9][0-9.e+-]*$")
     fail("${metrics_name}: reacquisition.${key} is '${value}'")
   endif()
 endforeach()
+# Exactly these sections, in this order. string(JSON MEMBER) sorts the keys,
+# so the order is read from the text: top-level keys are indented by two.
+string(REGEX MATCHALL "\n  \"[a-z_]+\":" sections "${metrics}")
+string(REGEX REPLACE "[\n \":]" "" sections "${sections}")
+if(NOT sections STREQUAL "schema;producer;dataset;gnss;config;metrics")
+  fail("${metrics_name}: top-level keys are '${sections}'")
+endif()
 
 # Cross-checks between runs, since the exact values depend on the filter.
 # A run without GNSS is the IMU-only run, so its outage-window RMSE is the
@@ -184,13 +216,13 @@ expect_exit(0 --oxts "${FIXTURE}/oxts" --gnss "${FIXTURE}/gnss_none.csv"
             --gnss-outage "${FIXTURE}/gnss_none.csv" --out "${WORK}/no_gnss"
             --outage-start 0.125 --outage-length 0.125)
 file(READ "${WORK}/no_gnss/${metrics_name}" no_gnss)
-string(JSON imu_only_rmse GET "${metrics}" imu_only_window_rmse)
-string(JSON no_gnss_rmse GET "${no_gnss}" outage_window_rmse)
+string(JSON imu_only_rmse GET "${metrics}" metrics imu_only_window_rmse_m)
+string(JSON no_gnss_rmse GET "${no_gnss}" metrics filter_outage_rmse_window_m)
 if(NOT imu_only_rmse STREQUAL no_gnss_rmse)
   fail("IMU-only window RMSE ${imu_only_rmse} is not that of a run without "
        "GNSS, ${no_gnss_rmse}")
 endif()
-string(JSON no_gnss_raw TYPE "${no_gnss}" raw_gnss_rmse)
+string(JSON no_gnss_raw TYPE "${no_gnss}" metrics raw_gnss_rmse_m)
 if(NOT no_gnss_raw STREQUAL "NULL")
   fail("raw_gnss_rmse without fixes is ${no_gnss_raw}, expected null")
 endif()
@@ -200,14 +232,14 @@ expect_exit(0 --oxts "${FIXTURE}/oxts" --gnss "${FIXTURE}/gnss.csv"
             --gnss-outage "${FIXTURE}/gnss.csv" --out "${WORK}/no_outage"
             --outage-start 0.2 --outage-length 0.1)
 file(READ "${WORK}/no_outage/${metrics_name}" no_outage)
-string(JSON raw GET "${metrics}" raw_gnss_rmse)
-string(JSON no_outage_raw GET "${no_outage}" raw_gnss_rmse)
+string(JSON raw GET "${metrics}" metrics raw_gnss_rmse_m)
+string(JSON no_outage_raw GET "${no_outage}" metrics raw_gnss_rmse_m)
 if(NOT raw STREQUAL no_outage_raw)
   fail("raw_gnss_rmse ${raw} changes with the outage file (${no_outage_raw})")
 endif()
 # Without an outage the outage run is the full run.
-string(JSON filter GET "${no_outage}" filter_rmse)
-string(JSON outage GET "${no_outage}" outage_rmse)
+string(JSON filter GET "${no_outage}" metrics filter_rmse_m)
+string(JSON outage GET "${no_outage}" metrics filter_outage_rmse_route_m)
 if(NOT filter STREQUAL outage)
   fail("without an outage, outage_rmse ${outage} is not filter_rmse ${filter}")
 endif()
@@ -219,8 +251,8 @@ expect_exit(0 --oxts "${FIXTURE}/oxts" --gnss "${FIXTURE}/gnss.csv"
             --gnss-outage "${FIXTURE}/gnss.csv" --out "${WORK}/late"
             --outage-start 0.41 --outage-length 0.05)
 file(READ "${WORK}/late/${metrics_name}" late)
-foreach(key reacquisition outage_window_rmse imu_only_window_rmse)
-  string(JSON type ERROR_VARIABLE json_error TYPE "${late}" ${key})
+foreach(key reacquisition filter_outage_rmse_window_m imu_only_window_rmse_m)
+  string(JSON type ERROR_VARIABLE json_error TYPE "${late}" metrics ${key})
   if(NOT type STREQUAL "NULL")
     fail("${metrics_name}: ${key} is ${type} for a window after the last fix")
   endif()
@@ -234,6 +266,25 @@ execute_process(
   RESULT_VARIABLE different)
 if(NOT different)
   fail("--gnss-position-std did not change the estimates")
+endif()
+# The metrics record the flag value that was used.
+file(READ "${WORK}/tuned/${metrics_name}" tuned)
+string(JSON tuned_std GET "${tuned}" config gnss_position_std)
+if(NOT tuned_std STREQUAL "0.5")
+  fail("config.gnss_position_std is '${tuned_std}', expected 0.5")
+endif()
+
+# The oxts path is escaped, so a quote in it keeps the file valid JSON.
+set(quoted_oxts "${WORK}/say \"hi\"/oxts")
+file(COPY "${FIXTURE}/oxts/" DESTINATION "${quoted_oxts}")
+expect_exit(0 --oxts "${quoted_oxts}" --gnss "${FIXTURE}/gnss.csv"
+            --gnss-outage "${FIXTURE}/gnss_outage.csv" --out "${WORK}/quoted"
+            --outage-start 0.125 --outage-length 0.125)
+file(READ "${WORK}/quoted/${metrics_name}" quoted)
+string(JSON quoted_path ERROR_VARIABLE json_error GET "${quoted}" dataset oxts)
+if(json_error OR NOT quoted_path STREQUAL quoted_oxts)
+  fail("dataset.oxts is '${quoted_path}', expected '${quoted_oxts}' "
+       "${json_error}")
 endif()
 
 # Help goes to stdout.
