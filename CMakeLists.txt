@@ -65,3 +65,11 @@ add_test(NAME kitti_run_tests
         -DKITTI_RUN=$<TARGET_FILE:kitti_run>
         -DWORK=${CMAKE_CURRENT_BINARY_DIR}/kitti_run_tests
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/kitti_run_tests.cmake)
+
+add_executable(accuracy apps/report/accuracy.cpp)
+target_link_libraries(accuracy PRIVATE sensor_fusion)
+add_test(NAME accuracy_tests
+    COMMAND ${CMAKE_COMMAND}
+        -DACCURACY=$<TARGET_FILE:accuracy>
+        -DWORK=${CMAKE_CURRENT_BINARY_DIR}/accuracy_tests
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/accuracy_tests.cmake)
